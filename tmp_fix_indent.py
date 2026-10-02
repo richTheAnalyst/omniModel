@@ -1,0 +1,31 @@
+"""Fix indentation in streamlit_app.py"""
+
+with open('C:/laravelapps/omniModel/streamlit_app.py', 'r') as f:
+    lines = f.readlines()
+
+fixed_lines = []
+for i, line in enumerate(lines):
+    if i < 454 or i >= 622:
+        fixed_lines.append(line)
+        continue
+    
+    stripped = line.rstrip()
+    content = stripped.lstrip()
+    
+    if not content:
+        fixed_lines.append('')
+        continue
+    
+    # Determine proper indentation based on content
+    if content.startswith('with ') or content.startswith('if ') or content.startswith('for ') or content.startswith('tp,') or content.startswith('te,') or content.startswith('tf,'):
+        fixed_lines.append('    ' + content + '\n')
+    elif content.startswith('with col_') or content.startswith('with tp') or content.startswith('with te') or content.startswith('with tf') or content.startswith('with col_pdf') or content.startswith('with col_docx') or content.startswith('with col_txt') or content.startswith('with col_g') or content.startswith('with col_b') or content.startswith('with col_d') or content.startswith('with col_o') or content.startswith('with col_clear') or content.startswith('with col_analyze') or content.startswith('with col_batch') or content.startswith('with col_exp') or content.startswith('with col_max') or content.startswith('with col_run') or content.startswith('with col_country') or content.startswith('with col_area') or content.startswith('with col_city') or content.startswith('with col_query') or content.startswith('with status') or content.startswith('with st.status') or content.startswith('try:') or content.startswith('except'):
+        fixed_lines.append('        ' + content + '\n')
+    elif content.startswith('st.') or content.startswith('results') or content.startswith('rows') or content.startswith('df') or content.startswith('name') or content.startswith('signals') or content.startswith('tk') or content.startswith('proposal') or content.startswith('email') or content.startswith('followup') or content.startswith('chart') or content.startswith('batch') or content.startswith('urls') or content.startswith('bad') or content.startswith('wide') or content.startswith('st.markdown') or content.startswith('st.write') or content.startswith('st.info') or content.startswith('st.caption') or content.startswith('st.dataframe') or content.startswith('st.error') or content.startswith('st.stop') or content.startswith('st.json') or content.startswith('st.bar_chart') or content.startswith('st.download_button') or content.startswith('st.text_area') or content.startswith('st.text_input') or content.startswith('st.number_input') or content.startswith('st.selectbox') or content.startswith('st.radio') or content.startswith('st.button') or content.startswith('st.status') or content.startswith('st.rerun') or content.startswith('st.session_state') or content.startswith('st.markdown("#') or content.startswith('st.markdown("<') or content.startswith('st.markdown("###') or content.startswith('st.markdown("**') or content.startswith('st.markdown("Playwright') or content.startswith('st.markdown("No login') or content.startswith('st.markdown("Generate') or content.startswith('st.markdown("Click') or content.startswith('st.markdown("Search') or content.startswith('st.markdown("Scrape') or content.startswith('st.markdown("Enter') or content.startswith('st.markdown("Select') or content.startswith('st.markdown("Type') or content.startswith('st.markdown("_Used') or content.startswith('st.markdown("_These') or content.startswith('st.markdown("URL') or content.startswith('st.markdown("Batch') or content.startswith('st.markdown("Results') or content.startswith('st.markdown("Score') or content.startswith('st.markdown("Outreach') or content.startswith('st.markdown("Extracted') or content.startswith('st.markdown("Ready') or content.startswith('st.markdown("Contact') or content.startswith('st.markdown("Cities') or content.startswith('st.markdown("Type:') or content.startswith('st.markdown("Phone:') or content.startswith('st.markdown("Website:') or content.startswith('st.markdown("Address:') or content.startswith('st.markdown("Rating:') or content.startswith('st.markdown("Region') or content.startswith('st.markdown("Powered') or content.startswith('st.markdown("No login') or content.startswith('st.markdown("Search for') or content.startswith('st.markdown("Select a') or content.startswith('st.markdown("Enter a') or content.startswith('st.markdown("Generate proposal') or content.startswith('st.markdown("Click a') or content.startswith('st.markdown("Edit email') or content.startswith('st.markdown("_Used') or content.startswith('st.markdown("_These') or content.startswith('st.markdown("_Used') or content.startswith('st.markdown("_These') or content.startswith('st.markdown("### Batch') or content.startswith('st.markdown("### Results') or content.startswith('st.markdown("### Score') or content.startswith('st.markdown("### Outreach') or content.startswith('st.markdown("### Contact') or content.startswith('st.markdown("### Cities') or content.startswith('st.markdown("### Type') or content.startswith('st.markdown("### Phone') or content.startswith('st.markdown("### Website') or content.startswith('st.markdown("### Address') or content.startswith('st.markdown("### Rating') or content.startswith('st.markdown("### Region') or content.startswith('st.markdown("### Powered') or content.startswith('st.markdown("### No login') or content.startswith('st.markdown("### Search for') or content.startswith('st.markdown("### Select a') or content.startswith('st.markdown("### Enter a') or content.startswith('st.markdown("### Generate proposal') or content.startswith('st.markdown("### Click a') or content.startswith('st.markdown("### Edit email') or content.startswith('st.markdown("### _Used') or content.startswith('st.markdown("### _These') or content.startswith('st.markdown("### _Used') or content.startswith('st.markdown("### _These'):
+        fixed_lines.append('    ' + content + '\n')
+    else:
+        fixed_lines.append('    ' + content + '\n')
+
+with open('C:/laravelapps/omniModel/streamlit_app.py', 'w') as f:
+    f.writelines(fixed_lines)
+print('Indentation fixed')

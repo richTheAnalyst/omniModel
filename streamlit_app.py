@@ -4,270 +4,847 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
-# Full-screen, responsive layout with Streamlit's native theme
-st.set_page_config(
-    page_title="omniModel",
-    page_icon="\U0001f4ca",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# Streamlit theme customization via CSS
-st.markdown(
-    """
-    <style>
-    /* Full-width app container */
-    .block-container {
-        max-width: 100% !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
-        padding-top: 1rem !important;
-    }
-
-    /* Remove default Streamlit centering */
-    .stApp {
-        background-color: var(--background-color);
-    }
-
-    /* Custom metric cards */
-    div[data-testid="stMetric"] {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 12px;
-        padding: 1rem;
-        color: white;
-    }
-
-    /* Rounded expanders */
-    div[data-testid="stExpander"] {
-        border-radius: 12px;
-        border: 1px solid rgba(128, 128, 128, 0.2);
-    }
-
-    /* Better spacing for markdown */
-    .stMarkdown, .stMarkdown p {
-        line-height: 1.6;
-    }
-
-    /* Responsive columns */
-    div[data-testid="stColumn"] {
-        padding: 0 0.5rem;
-    }
-
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-    ::-webkit-scrollbar-track {
-        background: var(--background-color);
-    }
-    ::-webkit-scrollbar-thumb {
-        background: var(--secondary-background-color);
-        border-radius: 4px;
-    }
-
-    /* Force tab labels visible in all themes */
-    div[data-testid="stTab"] {
-        color: var(--text-color) !important;
-    }
-    div[data-testid="stTab"] p {
-        color: var(--text-color) !important;
-    }
-    [role="tab"] {
-        color: var(--text-color) !important;
-    }
-    [role="tab"][aria-selected="true"] {
-        color: var(--text-color) !important;
-        border-bottom-color: var(--primary-color) !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
 from omnimodel.config import config
+from omnimodel.export import export_docx, export_pdf, export_txt
 from omnimodel.extraction.factory import available_backends, get_extractor
-from omnimodel.places.google_places import get_place_contacts, search_by_location
-from omnimodel.scraping.playwright_scraper import fetch_page, fetch_pages
-from omnimodel.scoring.weighted_rules import default_rules, score_signals
+from omnimodel.places.google_places import (
+    get_place_contacts,
+    search_by_location,
+)
+from omnimodel.scoring.weighted_rules import (
+    default_rules,
+    score_signals,
+)
+from omnimodel.scraping.playwright_scraper import fetch_pages
 from omnimodel.templates import (
     generate_followup_email,
     generate_outreach_email,
     generate_proposal_letter,
 )
-from omnimodel.export import export_docx, export_pdf, export_txt
-
-# Helpers
-import pandas as pd
 
 
-def _score_breakdown_df(breakdown):
+# =============================================================================
+# PAGE CONFIGURATION
+# =============================================================================
+
+st.set_page_config(
+    page_title="omniModel",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+
+# =============================================================================
+# CSS
+# =============================================================================
+
+st.markdown(
+    """
+    <style>
+        /* Main application container */
+        .block-container {
+            max-width: 100% !important;
+            padding-left: 1.5rem !important;
+            padding-right: 1.5rem !important;
+            padding-top: 1rem !important;
+            padding-bottom: 2rem !important;
+        }
+
+        /* Metric cards */
+        div[data-testid="stMetric"] {
+            background: linear-gradient(
+                135deg,
+                #667eea 0%,
+                #764ba2 100%
+            );
+            border-radius: 12px;
+            padding: 1rem;
+            color: white;
+        }
+
+        div[data-testid="stMetric"] label,
+        div[data-testid="stMetric"] p {
+            color: white !important;
+        }
+
+        /* Expanders */
+        div[data-testid="stExpander"] {
+            border-radius: 12px;
+            border: 1px solid rgba(128, 128, 128, 0.20);
+            overflow: hidden;
+        }
+
+        /* Markdown spacing */
+        .stMarkdown,
+        .stMarkdown p {
+            line-height: 1.6;
+        }
+
+        /* Columns */
+        div[data-testid="stColumn"] {
+            padding: 0 0.4rem;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(128, 128, 128, 0.45);
+            border-radius: 6px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(128, 128, 128, 0.65);
+        }
+
+        /* Tabs */
+        [role="tab"] {
+            font-weight: 600 !important;
+            padding-left: 1.25rem !important;
+            padding-right: 1.25rem !important;
+        }
+
+        [role="tab"]:hover {
+            background-color: rgba(128, 128, 128, 0.08) !important;
+            border-radius: 8px 8px 0 0;
+        }
+
+        [role="tab"][aria-selected="true"] {
+            background-color: rgba(128, 128, 128, 0.12) !important;
+            border-radius: 8px 8px 0 0;
+        }
+
+        /* Buttons */
+        .stButton > button {
+            border-radius: 8px;
+        }
+
+        .stDownloadButton > button {
+            border-radius: 8px;
+            width: 100%;
+        }
+
+        /* Dataframes */
+        div[data-testid="stDataFrame"] {
+            border-radius: 10px;
+            overflow: hidden;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# =============================================================================
+# HELPERS
+# =============================================================================
+
+
+def _score_breakdown_df(
+    breakdown: dict[str, Any] | None,
+) -> pd.DataFrame:
+    """Convert score breakdown dictionary into a DataFrame."""
+
     if not breakdown:
-        return pd.DataFrame({"rule": [], "score": []})
+        return pd.DataFrame(
+            {
+                "rule": [],
+                "score": [],
+            }
+        )
+
     return pd.DataFrame(
-        [{"rule": k, "score": v} for k, v in breakdown.items()]
+        [
+            {
+                "rule": rule,
+                "score": score,
+            }
+            for rule, score in breakdown.items()
+        ]
     ).set_index("rule")
 
 
-def _score_gauge(score):
-    pct = int(score * 100)
-    color = "#22c55e" if pct >= 70 else "#f59e0b" if pct >= 40 else "#ef4444"
+def _score_gauge(score: float | int | None) -> str:
+    """Render a simple HTML score gauge."""
+
+    try:
+        numeric_score = float(score or 0)
+    except (TypeError, ValueError):
+        numeric_score = 0.0
+
+    pct = max(
+        0,
+        min(
+            100,
+            int(numeric_score * 100),
+        ),
+    )
+
+    if pct >= 70:
+        color = "#22c55e"
+    elif pct >= 40:
+        color = "#f59e0b"
+    else:
+        color = "#ef4444"
+
     return (
         '<div style="text-align:center;padding:10px;">'
-        f'<div style="font-size:48px;font-weight:800;color:{color};">{pct}</div>'
-        '<div style="font-size:12px;color:#6b7280;">SCORE</div>'
-        '<div style="margin:8px auto 0;width:100%;height:8px;background:#e5e7eb;border-radius:4px;">'
-        f'<div style="width:{pct}%;height:100%;background:{color};border-radius:4px;"></div>'
-        "</div></div>"
+        f'<div style="font-size:48px;font-weight:800;color:{color};">'
+        f"{pct}"
+        "</div>"
+        '<div style="font-size:12px;color:#6b7280;">'
+        "SCORE"
+        "</div>"
+        '<div style="margin:8px auto 0;'
+        "width:100%;"
+        "height:8px;"
+        "background:#e5e7eb;"
+        'border-radius:4px;">'
+        f'<div style="width:{pct}%;'
+        "height:100%;"
+        f"background:{color};"
+        'border-radius:4px;"></div>'
+        "</div>"
+        "</div>"
     )
 
 
-def _run_pipeline(urls, backend):
-    pages = asyncio.run(fetch_pages(urls))
-    extractor = get_extractor(backend)
+def _safe_filename(value: str) -> str:
+    """Convert arbitrary text into a safe filename component."""
+
+    value = str(value).strip()
+
+    value = re.sub(
+        r"[^\w\-]+",
+        "_",
+        value,
+        flags=re.UNICODE,
+    )
+
+    value = re.sub(
+        r"_+",
+        "_",
+        value,
+    )
+
+    value = value.strip("_")
+
+    return value or "company"
+
+
+def _template_context(
+    *,
+    our_name: str,
+    our_title: str,
+    our_email: str,
+    our_phone: str,
+    our_services: str,
+    our_value_prop: str,
+) -> dict[str, str]:
+    """Build common context passed to outreach templates."""
+
+    return {
+        "our_name": our_name,
+        "our_title": our_title,
+        "our_email": our_email,
+        "our_phone": our_phone,
+        "deliverables": our_services,
+        "value_prop": our_value_prop,
+    }
+
+
+def _render_download_buttons(
+    *,
+    text: str,
+    title: str,
+    filename_prefix: str,
+    filename_name: str,
+    key_prefix: str,
+) -> None:
+    """Render PDF, DOCX and TXT export buttons."""
+
+    safe_name = _safe_filename(filename_name)
+
+    col_pdf, col_docx, col_txt = st.columns(3)
+
+    with col_pdf:
+        st.download_button(
+            label="PDF",
+            data=export_pdf(text),
+            file_name=f"{filename_prefix}_{safe_name}.pdf",
+            mime="application/pdf",
+            key=f"{key_prefix}_pdf",
+            use_container_width=True,
+        )
+
+    with col_docx:
+        st.download_button(
+            label="DOCX",
+            data=export_docx(
+                text,
+                title,
+            ),
+            file_name=f"{filename_prefix}_{safe_name}.docx",
+            mime=(
+                "application/vnd.openxmlformats-officedocument."
+                "wordprocessingml.document"
+            ),
+            key=f"{key_prefix}_docx",
+            use_container_width=True,
+        )
+
+    with col_txt:
+        st.download_button(
+            label="TXT",
+            data=export_txt(text),
+            file_name=f"{filename_prefix}_{safe_name}.txt",
+            mime="text/plain",
+            key=f"{key_prefix}_txt",
+            use_container_width=True,
+        )
+
+
+def _run_pipeline(
+    urls: list[str],
+    backend: str,
+) -> dict[str, Any]:
+    """Scrape URLs, extract signals and score them."""
+
+    pages = asyncio.run(
+        fetch_pages(urls)
+    )
+
+    extractor = get_extractor(
+        backend
+    )
+
     rules = default_rules()
-    results = {}
+
+    results: dict[str, Any] = {}
+
     for url, page_text in pages.items():
-        signals = extractor(page_text)
-        scored = score_signals(signals, rules)
-        results[url] = {
-            "signals": signals,
-            "score": scored.score,
-            "breakdown": scored.breakdown,
-        }
+        if not page_text:
+            results[url] = {
+                "signals": {},
+                "score": 0,
+                "breakdown": {},
+                "error": "No page content was returned.",
+            }
+            continue
+
+        try:
+            signals = extractor(
+                page_text
+            )
+
+            if signals is None:
+                signals = {}
+
+            scored = score_signals(
+                signals,
+                rules,
+            )
+
+            results[url] = {
+                "signals": signals,
+                "score": scored.score,
+                "breakdown": scored.breakdown,
+            }
+
+        except Exception as exc:
+            results[url] = {
+                "signals": {},
+                "score": 0,
+                "breakdown": {},
+                "error": str(exc),
+            }
+
     return results
 
 
-def _run_wide_search(query, location, *, max_results=20, fetch_contacts=True):
-    places = search_by_location(query, location, max_results=max_results)
-    results = []
+def _run_wide_search(
+    query: str,
+    location: str,
+    *,
+    max_results: int = 20,
+    fetch_contacts: bool = True,
+) -> list[dict[str, Any]]:
+    """Search Google Places and normalize company results."""
+
+    places = search_by_location(
+        query,
+        location,
+        max_results=max_results,
+    )
+
+    results: list[dict[str, Any]] = []
+
     for place in places:
+        display_name = (
+            place.get("displayName")
+            or {}
+        )
+
         entry = {
             "id": place.get("id"),
-            "name": (place.get("displayName") or {}).get("text"),
-            "address": place.get("formattedAddress"),
-            "phone": place.get("nationalPhoneNumber"),
-            "website": place.get("websiteUri"),
-            "types": place.get("types"),
-            "rating": place.get("rating"),
-            "review_count": place.get("userRatingCount"),
+            "name": display_name.get("text"),
+            "address": place.get(
+                "formattedAddress"
+            ),
+            "phone": place.get(
+                "nationalPhoneNumber"
+            ),
+            "website": place.get(
+                "websiteUri"
+            ),
+            "types": place.get(
+                "types"
+            )
+            or [],
+            "rating": place.get(
+                "rating"
+            ),
+            "review_count": place.get(
+                "userRatingCount"
+            )
+            or 0,
+            "contacts": None,
         }
-        if fetch_contacts and place.get("id"):
+
+        if (
+            fetch_contacts
+            and place.get("id")
+        ):
             try:
-                entry["contacts"] = get_place_contacts(place["id"])
+                entry["contacts"] = (
+                    get_place_contacts(
+                        place["id"]
+                    )
+                )
             except Exception:
                 entry["contacts"] = None
-        results.append(entry)
+
+        results.append(
+            entry
+        )
+
     return results
 
 
-def _render_contacts(place):
-    contacts = place.get("contacts") or {}
-    name = contacts.get("name") or place.get("name") or "-"
-    phone = contacts.get("phone") or place.get("phone") or "-"
-    website = contacts.get("website") or place.get("website") or "-"
-    address = contacts.get("address") or place.get("address") or "-"
-    rating = contacts.get("rating") or place.get("rating") or "-"
-    reviews = contacts.get("review_count") or place.get("review_count") or 0
-    types = contacts.get("types") or place.get("types") or []
-    st.markdown("**" + str(name) + "**")
-    st.markdown("Phone: " + str(phone))
-    st.markdown("Website: " + str(website))
-    st.markdown("Address: " + str(address))
-    if rating != "-":
-        st.markdown("Rating: " + str(rating) + " (" + str(reviews) + " reviews)")
+def _render_contacts(
+    place: dict[str, Any],
+) -> None:
+    """Render company contact information."""
+
+    contacts = (
+        place.get("contacts")
+        or {}
+    )
+
+    name = (
+        contacts.get("name")
+        or place.get("name")
+        or "-"
+    )
+
+    phone = (
+        contacts.get("phone")
+        or place.get("phone")
+        or "-"
+    )
+
+    website = (
+        contacts.get("website")
+        or place.get("website")
+        or "-"
+    )
+
+    address = (
+        contacts.get("address")
+        or place.get("address")
+        or "-"
+    )
+
+    rating = (
+        contacts.get("rating")
+        or place.get("rating")
+    )
+
+    reviews = (
+        contacts.get("review_count")
+        or place.get("review_count")
+        or 0
+    )
+
+    types = (
+        contacts.get("types")
+        or place.get("types")
+        or []
+    )
+
+    st.markdown(
+        f"**{name}**"
+    )
+
+    st.markdown(
+        f"**Phone:** {phone}"
+    )
+
+    if website != "-":
+        st.markdown(
+            f"**Website:** {website}"
+        )
+    else:
+        st.markdown(
+            "**Website:** Not available"
+        )
+
+    st.markdown(
+        f"**Address:** {address}"
+    )
+
+    if rating is not None:
+        st.markdown(
+            f"**Rating:** {rating} "
+            f"({reviews} reviews)"
+        )
+
     if types:
-        st.markdown("Type: " + ", ".join(str(t) for t in types[:4]))
+        readable_types = [
+            str(item).replace(
+                "_",
+                " ",
+            ).title()
+            for item in types[:4]
+        ]
+
+        st.markdown(
+            "**Type:** "
+            + ", ".join(
+                readable_types
+            )
+        )
 
 
-# ---------------------------------------------------------------------------
-# Country / city data
-# ---------------------------------------------------------------------------
+# =============================================================================
+# LOCATION DATA
+# =============================================================================
+
+
 _COUNTRIES = [
-    "United States", "Canada", "United Kingdom", "Australia", "Germany",
-    "France", "Spain", "Italy", "Netherlands", "Sweden", "Norway", "Denmark",
-    "Finland", "Belgium", "Switzerland", "Austria", "Ireland", "New Zealand",
-    "Japan", "South Korea", "India", "Brazil", "Mexico", "Argentina",
-    "Singapore", "Hong Kong", "United Arab Emirates", "Ghana", "Nigeria",
-    "South Africa", "Kenya",
+    "United States",
+    "Canada",
+    "United Kingdom",
+    "Australia",
+    "Germany",
+    "France",
+    "Spain",
+    "Italy",
+    "Netherlands",
+    "Sweden",
+    "Norway",
+    "Denmark",
+    "Finland",
+    "Belgium",
+    "Switzerland",
+    "Austria",
+    "Ireland",
+    "New Zealand",
+    "Japan",
+    "South Korea",
+    "India",
+    "Brazil",
+    "Mexico",
+    "Argentina",
+    "Singapore",
+    "Hong Kong",
+    "United Arab Emirates",
+    "Ghana",
+    "Nigeria",
+    "South Africa",
+    "Kenya",
 ]
+
 
 _CITIES_BY_COUNTRY = {
-    "United States": ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix",
-        "Philadelphia", "San Antonio", "San Diego", "Dallas", "San Jose",
-        "Austin", "Seattle", "Denver", "Boston", "Miami"],
-    "Canada": ["Toronto", "Montreal", "Vancouver", "Calgary", "Ottawa"],
-    "United Kingdom": ["London", "Manchester", "Birmingham", "Edinburgh", "Liverpool"],
-    "Australia": ["Sydney", "Melbourne", "Brisbane", "Perth", "Adelaide"],
-    "Germany": ["Berlin", "Munich", "Hamburg", "Frankfurt", "Cologne"],
-    "France": ["Paris", "Marseille", "Lyon", "Toulouse", "Nice"],
-    "Spain": ["Madrid", "Barcelona", "Valencia", "Seville", "Malaga"],
-    "Italy": ["Rome", "Milan", "Naples", "Florence", "Venice"],
-    "Netherlands": ["Amsterdam", "Rotterdam", "The Hague", "Utrecht"],
-    "Sweden": ["Stockholm", "Gothenburg", "Malmo", "Uppsala"],
-    "Norway": ["Oslo", "Bergen", "Trondheim", "Stavanger"],
-    "Denmark": ["Copenhagen", "Aarhus", "Odense", "Aalborg"],
-    "Finland": ["Helsinki", "Espoo", "Tampere", "Turku"],
-    "Belgium": ["Brussels", "Antwerp", "Ghent", "Bruges"],
-    "Switzerland": ["Zurich", "Geneva", "Basel", "Bern"],
-    "Austria": ["Vienna", "Graz", "Linz", "Salzburg"],
-    "Ireland": ["Dublin", "Cork", "Galway", "Limerick"],
-    "New Zealand": ["Auckland", "Wellington", "Christchurch", "Hamilton"],
-    "Japan": ["Tokyo", "Osaka", "Kyoto", "Yokohama", "Nagoya"],
-    "South Korea": ["Seoul", "Busan", "Incheon", "Daegu", "Daejeon"],
-    "India": ["Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai"],
-    "Brazil": ["Sao Paulo", "Rio de Janeiro", "Brasilia", "Salvador"],
-    "Mexico": ["Mexico City", "Guadalajara", "Monterrey", "Puebla"],
-    "Argentina": ["Buenos Aires", "Cordoba", "Rosario", "Mendoza"],
-    "Singapore": ["Singapore"],
-    "Hong Kong": ["Hong Kong"],
-    "United Arab Emirates": ["Dubai", "Abu Dhabi", "Sharjah"],
-    "Ghana": ["Accra", "Kumasi", "Tamale", "Cape Coast", "Takoradi"],
-    "Nigeria": ["Lagos", "Kano", "Ibadan", "Abuja", "Port Harcourt"],
-    "South Africa": ["Johannesburg", "Cape Town", "Durban", "Pretoria", "Port Elizabeth"],
-    "Kenya": ["Nairobi", "Mombasa", "Kisumu", "Nakuru", "Eldoret"],
+    "United States": [
+        "New York",
+        "Los Angeles",
+        "Chicago",
+        "Houston",
+        "Phoenix",
+        "Philadelphia",
+        "San Antonio",
+        "San Diego",
+        "Dallas",
+        "San Jose",
+        "Austin",
+        "Seattle",
+        "Denver",
+        "Boston",
+        "Miami",
+    ],
+    "Canada": [
+        "Toronto",
+        "Montreal",
+        "Vancouver",
+        "Calgary",
+        "Ottawa",
+    ],
+    "United Kingdom": [
+        "London",
+        "Manchester",
+        "Birmingham",
+        "Edinburgh",
+        "Liverpool",
+    ],
+    "Australia": [
+        "Sydney",
+        "Melbourne",
+        "Brisbane",
+        "Perth",
+        "Adelaide",
+    ],
+    "Germany": [
+        "Berlin",
+        "Munich",
+        "Hamburg",
+        "Frankfurt",
+        "Cologne",
+    ],
+    "France": [
+        "Paris",
+        "Marseille",
+        "Lyon",
+        "Toulouse",
+        "Nice",
+    ],
+    "Spain": [
+        "Madrid",
+        "Barcelona",
+        "Valencia",
+        "Seville",
+        "Malaga",
+    ],
+    "Italy": [
+        "Rome",
+        "Milan",
+        "Naples",
+        "Florence",
+        "Venice",
+    ],
+    "Netherlands": [
+        "Amsterdam",
+        "Rotterdam",
+        "The Hague",
+        "Utrecht",
+    ],
+    "Sweden": [
+        "Stockholm",
+        "Gothenburg",
+        "Malmo",
+        "Uppsala",
+    ],
+    "Norway": [
+        "Oslo",
+        "Bergen",
+        "Trondheim",
+        "Stavanger",
+    ],
+    "Denmark": [
+        "Copenhagen",
+        "Aarhus",
+        "Odense",
+        "Aalborg",
+    ],
+    "Finland": [
+        "Helsinki",
+        "Espoo",
+        "Tampere",
+        "Turku",
+    ],
+    "Belgium": [
+        "Brussels",
+        "Antwerp",
+        "Ghent",
+        "Bruges",
+    ],
+    "Switzerland": [
+        "Zurich",
+        "Geneva",
+        "Basel",
+        "Bern",
+    ],
+    "Austria": [
+        "Vienna",
+        "Graz",
+        "Linz",
+        "Salzburg",
+    ],
+    "Ireland": [
+        "Dublin",
+        "Cork",
+        "Galway",
+        "Limerick",
+    ],
+    "New Zealand": [
+        "Auckland",
+        "Wellington",
+        "Christchurch",
+        "Hamilton",
+    ],
+    "Japan": [
+        "Tokyo",
+        "Osaka",
+        "Kyoto",
+        "Yokohama",
+        "Nagoya",
+    ],
+    "South Korea": [
+        "Seoul",
+        "Busan",
+        "Incheon",
+        "Daegu",
+        "Daejeon",
+    ],
+    "India": [
+        "Mumbai",
+        "Delhi",
+        "Bangalore",
+        "Hyderabad",
+        "Chennai",
+    ],
+    "Brazil": [
+        "Sao Paulo",
+        "Rio de Janeiro",
+        "Brasilia",
+        "Salvador",
+    ],
+    "Mexico": [
+        "Mexico City",
+        "Guadalajara",
+        "Monterrey",
+        "Puebla",
+    ],
+    "Argentina": [
+        "Buenos Aires",
+        "Cordoba",
+        "Rosario",
+        "Mendoza",
+    ],
+    "Singapore": [
+        "Singapore",
+    ],
+    "Hong Kong": [
+        "Hong Kong",
+    ],
+    "United Arab Emirates": [
+        "Dubai",
+        "Abu Dhabi",
+        "Sharjah",
+    ],
+    "Ghana": [
+        "Accra",
+        "Kumasi",
+        "Tamale",
+        "Cape Coast",
+        "Takoradi",
+    ],
+    "Nigeria": [
+        "Lagos",
+        "Kano",
+        "Ibadan",
+        "Abuja",
+        "Port Harcourt",
+    ],
+    "South Africa": [
+        "Johannesburg",
+        "Cape Town",
+        "Durban",
+        "Pretoria",
+        "Port Elizabeth",
+    ],
+    "Kenya": [
+        "Nairobi",
+        "Mombasa",
+        "Kisumu",
+        "Nakuru",
+        "Eldoret",
+    ],
 }
 
-# Areas / regions within countries (used for granular filtering)
-_Ghana = [
-    "Greater Accra", "Ashanti", "Northern", "Western", "Eastern", "Central",
-    "Volta", "Bono", "Upper East", "Upper West", "Bono East", "Oti",
-    "Western North", "Savannah", "Ahafo",
+
+_GHANA_REGIONS = [
+    "Greater Accra",
+    "Ashanti",
+    "Northern",
+    "Western",
+    "Eastern",
+    "Central",
+    "Volta",
+    "Bono",
+    "Upper East",
+    "Upper West",
+    "Bono East",
+    "Oti",
+    "Western North",
+    "Savannah",
+    "Ahafo",
+    "North East",
 ]
 
-# Major cities with land area info (km²)
-_Ghana_CITIES = {
+
+_GHANA_CITIES = {
     "Greater Accra": [
-        ("Accra", "20.4 (Metro) / 199.4 (urban)"),
-        ("Tema", "87.8 (Metro District)"),
+        (
+            "Accra",
+            "20.4 (Metro) / 199.4 (urban)",
+        ),
+        (
+            "Tema",
+            "87.8 (Metro District)",
+        ),
         ("Madina", None),
         ("Teshie", None),
         ("Nungua", None),
-        ("Ashiaman", None),
-        ("Mampong", None),
+        ("Ashaiman", None),
         ("Dodowa", None),
     ],
     "Ashanti": [
-        ("Kumasi", "299 (city) / 214.3 (Metro District)"),
+        (
+            "Kumasi",
+            "299 (city) / 214.3 (Metro District)",
+        ),
         ("Obuasi", None),
         ("Ejisu", None),
         ("Nkawie", None),
-        ("Fumso", None),
+        ("Mampong", None),
     ],
     "Northern": [
-        ("Tamale", "750 (city) / 647 (Metro District)"),
+        (
+            "Tamale",
+            "750 (city) / 647 (Metro District)",
+        ),
         ("Savelugu", None),
         ("Yendi", None),
-        ("Bawku", None),
     ],
     "Western": [
         ("Sekondi-Takoradi", None),
         ("Tarkwa", None),
-        ("Bibiani", None),
     ],
     "Eastern": [
         ("Koforidua", None),
@@ -312,6 +889,7 @@ _Ghana_CITIES = {
     ],
     "Western North": [
         ("Sefwi-Wiawso", None),
+        ("Bibiani", None),
     ],
     "Savannah": [
         ("Damongo", None),
@@ -319,10 +897,15 @@ _Ghana_CITIES = {
     "Ahafo": [
         ("Goaso", None),
     ],
+    "North East": [
+        ("Nalerigu", None),
+        ("Gambaga", None),
+        ("Walewale", None),
+    ],
 }
 
-# Region total areas (km²)
-_Ghana_REGION_AREAS = {
+
+_GHANA_REGION_AREAS = {
     "Northern": "70,384",
     "Savannah": "34,790",
     "Bono East": "23,248",
@@ -340,420 +923,1521 @@ _Ghana_REGION_AREAS = {
     "Greater Accra": "3,245",
 }
 
-# Build _AREAS_BY_COUNTRY and _CITIES_BY_AREA from the Ghana data
+
 _AREAS_BY_COUNTRY = {
-    "Ghana": _Ghana,
-    "United States": ["Northeast", "Southeast", "Midwest", "Southwest", "West", "New England", "Pacific", "Mountain", "Atlantic"],
-    "United Kingdom": ["England", "Scotland", "Wales", "Northern Ireland"],
-    "Canada": ["Ontario", "Quebec", "British Columbia", "Alberta", "Manitoba", "Saskatchewan", "Nova Scotia", "New Brunswick"],
-    "Australia": ["New South Wales", "Victoria", "Queensland", "Western Australia", "South Australia", "Tasmania"],
-    "Nigeria": ["Lagos", "FCT", "Kano", "Rivers", "Oyo", "Delta", "Kaduna", "Enugu"],
-    "South Africa": ["Gauteng", "Western Cape", "KwaZulu-Natal", "Eastern Cape", "Mpumalanga"],
-    "Kenya": ["Nairobi", "Coast", "Rift Valley", "Eastern", "Central", "Western"],
+    "Ghana": _GHANA_REGIONS,
+    "United States": [
+        "Northeast",
+        "Southeast",
+        "Midwest",
+        "Southwest",
+        "West",
+        "New England",
+        "Pacific",
+        "Mountain",
+        "Atlantic",
+    ],
+    "United Kingdom": [
+        "England",
+        "Scotland",
+        "Wales",
+        "Northern Ireland",
+    ],
+    "Canada": [
+        "Ontario",
+        "Quebec",
+        "British Columbia",
+        "Alberta",
+        "Manitoba",
+        "Saskatchewan",
+        "Nova Scotia",
+        "New Brunswick",
+    ],
+    "Australia": [
+        "New South Wales",
+        "Victoria",
+        "Queensland",
+        "Western Australia",
+        "South Australia",
+        "Tasmania",
+    ],
+    "Nigeria": [
+        "Lagos",
+        "FCT",
+        "Kano",
+        "Rivers",
+        "Oyo",
+        "Delta",
+        "Kaduna",
+        "Enugu",
+    ],
+    "South Africa": [
+        "Gauteng",
+        "Western Cape",
+        "KwaZulu-Natal",
+        "Eastern Cape",
+        "Mpumalanga",
+    ],
+    "Kenya": [
+        "Nairobi",
+        "Coast",
+        "Rift Valley",
+        "Eastern",
+        "Central",
+        "Western",
+    ],
 }
 
-_CITIES_BY_AREA = {}
-for region, cities in _Ghana_CITIES.items():
-    _CITIES_BY_AREA["Ghana|" + region] = [c[0] for c in cities]
 
-# Session state
-for key, default in [("results", None), ("wide_results", None), ("last_urls", [])]:
-    if key not in st.session_state:
-        setattr(st.session_state, key, default)
+_CITIES_BY_AREA: dict[str, list[str]] = {}
 
-# ---------------------------------------------------------------------------
-# Sidebar
-# ---------------------------------------------------------------------------
+for region_name, cities in _GHANA_CITIES.items():
+    _CITIES_BY_AREA[
+        f"Ghana|{region_name}"
+    ] = [
+        city_name
+        for city_name, _ in cities
+    ]
+
+
+# =============================================================================
+# SESSION STATE
+# =============================================================================
+
+
+SESSION_DEFAULTS = {
+    "results": None,
+    "wide_results": None,
+    "last_urls": [],
+}
+
+
+for state_key, default_value in SESSION_DEFAULTS.items():
+    if state_key not in st.session_state:
+        st.session_state[
+            state_key
+        ] = default_value
+
+
+# =============================================================================
+# SIDEBAR
+# =============================================================================
+
+
 with st.sidebar:
-    st.markdown("# omniModel")
-    st.markdown("<span style='color:var(--text-color-dim);'>Company signal extraction & scoring</span>", unsafe_allow_html=True)
-    st.write("")
-
-    # Theme toggle - use radio instead of segmented_control for reliability
-    st.markdown("### Theme")
-    theme = st.radio(
-        "Theme", options=["Light", "Dark", "System"], index=2,
-        help="Switch between light, dark, or system theme.",
+    st.markdown(
+        "# omniModel"
     )
 
-    st.write("")
-    st.markdown("### My business")
-    st.markdown("_Used in all outreach templates._")
-    our_name = st.text_input("Business name", value="Your Company")
-    our_email = st.text_input("Email", value="hello@yourcompany.com")
-    our_phone = st.text_input("Phone", value="")
-    our_title = st.text_input("Title", value="Business Development")
+    st.caption(
+        "Company signal extraction, "
+        "lead scoring and outreach."
+    )
+
+    st.divider()
+
+    st.markdown(
+        "### My business"
+    )
+
+    st.caption(
+        "These details are used when generating "
+        "proposal letters and outreach emails."
+    )
+
+    our_name = st.text_input(
+        "Business name",
+        value="Your Company",
+        key="business_name",
+    )
+
+    our_email = st.text_input(
+        "Email",
+        value="hello@yourcompany.com",
+        key="business_email",
+    )
+
+    our_phone = st.text_input(
+        "Phone",
+        value="",
+        key="business_phone",
+    )
+
+    our_title = st.text_input(
+        "Title",
+        value="Business Development",
+        key="business_title",
+    )
+
     our_services = st.text_area(
         "Services to market",
-        value="- Faster, more reliable operations\n- Cost savings through automation\n- Better customer experience",
-        height=68,
+        value=(
+            "- Faster, more reliable operations\n"
+            "- Cost savings through automation\n"
+            "- Better customer experience"
+        ),
+        height=110,
+        key="business_services",
     )
+
     our_value_prop = st.text_input(
-        "Value proposition", value="optimize operations and grow revenue"
+        "Value proposition",
+        value="optimize operations and grow revenue",
+        key="business_value_prop",
     )
 
-    st.write("")
-    st.markdown("### LLM backend")
+    st.divider()
+
+    st.markdown(
+        "### LLM backend"
+    )
+
     backends = available_backends()
+
+    if not backends:
+        st.error(
+            "No extraction backends are available."
+        )
+        st.stop()
+
+    default_backend_index = 0
+
+    if (
+        config.extraction_backend
+        in backends
+    ):
+        default_backend_index = (
+            backends.index(
+                config.extraction_backend
+            )
+        )
+
     backend = st.radio(
-        "Backend", options=backends,
-        index=backends.index(config.extraction_backend) if config.extraction_backend in backends else 0,
-        help="OpenRouter (default), Ollama (local), or Claude (paid).",
+        "Backend",
+        options=backends,
+        index=default_backend_index,
+        key="llm_backend",
+        help=(
+            "Choose the model backend used "
+            "for signal extraction."
+        ),
     )
-    if backend == "openrouter":
-        st.success("OpenRouter active")
-    elif backend == "ollama":
-        st.warning("Ollama - make sure ollama serve is running")
+
+    backend_name = str(
+        backend
+    ).lower()
+
+    if backend_name == "openrouter":
+        st.success(
+            "OpenRouter active"
+        )
+
+    elif backend_name == "ollama":
+        st.warning(
+            "Ollama selected. Make sure "
+            "`ollama serve` is running."
+        )
+
+    elif backend_name == "claude":
+        st.info(
+            "Claude selected. "
+            "ANTHROPIC_API_KEY is required."
+        )
+
     else:
-        st.info("Claude - requires ANTHROPIC_API_KEY")
+        st.info(
+            f"{backend} selected."
+        )
 
-    st.write("")
-    st.markdown("### Scoring rules")
-    for r in default_rules():
-        st.write("**" + r.name + "** - weight " + str(r.weight))
+    st.divider()
 
-    st.write("")
-    st.markdown("---")
-    st.markdown("Playwright | OpenRouter | Google Places | Streamlit")
-    st.markdown("No login. Anyone with browser access can use it.")
+    st.markdown(
+        "### Scoring rules"
+    )
 
-# ---------------------------------------------------------------------------
-# Tab 1: Analyze website
-# ---------------------------------------------------------------------------
-tab_analyze, tab_wide = st.tabs(["Analyze website", "Wide scraping"])
+    for rule in default_rules():
+        st.markdown(
+            f"**{rule.name}**  \n"
+            f"Weight: `{rule.weight}`"
+        )
+
+    st.divider()
+
+    st.caption(
+        "Playwright · LLM extraction · "
+        "Google Places · Streamlit"
+    )
+
+    st.caption(
+        "No authentication is currently enabled."
+    )
+
+
+# =============================================================================
+# MAIN APPLICATION
+# =============================================================================
+
+
+st.markdown(
+    "# omniModel"
+)
+
+st.caption(
+    "Discover companies, analyze their websites, "
+    "score business signals and generate outreach."
+)
+
+tab_analyze, tab_wide = st.tabs(
+    [
+        "WEB ANALYSER",
+        "WIDE RANGE SEARCH",
+    ]
+)
+
+
+# =============================================================================
+# TAB 1
+# WEB ANALYSER
+# =============================================================================
+
 
 with tab_analyze:
-    st.markdown("# Analyze a website")
-    st.markdown("<span style='color:#6b7280;'>Scrape, extract signals, score, and generate outreach in one click.</span>", unsafe_allow_html=True)
+    st.markdown(
+        "## Web Analyser"
+    )
+
+    st.caption(
+        "Scrape a company website, extract business signals, "
+        "score the opportunity and generate outreach."
+    )
+
     st.write("")
+
+    # -------------------------------------------------------------------------
+    # Single URL analysis
+    # -------------------------------------------------------------------------
+
+    st.markdown(
+        "### Analyze a website"
+    )
 
     url = st.text_input(
-        "Website URL", placeholder="https://example.com",
-        help="Enter a company website to scrape and analyze.",
+        "Website URL",
+        placeholder="https://example.com",
+        help=(
+            "Enter a company website using "
+            "http:// or https://."
+        ),
+        key="analyzer_url",
     )
 
-    col_analyze, col_clear = st.columns([1, 4])
+    col_analyze, col_clear = st.columns(
+        [1, 4]
+    )
+
     with col_analyze:
-        analyze = st.button("Analyze", type="primary", use_container_width=True)
+        analyze = st.button(
+            "Analyze",
+            type="primary",
+            use_container_width=True,
+            key="analyze_single_url",
+        )
+
     with col_clear:
-        if st.button("Clear results", use_container_width=False):
+        clear_results = st.button(
+            "Clear results",
+            key="clear_analysis_results",
+        )
+
+        if clear_results:
             st.session_state.results = None
+            st.session_state.last_urls = []
             st.rerun()
 
-    if analyze and url:
-        if not url.startswith(("http://", "https://")):
-            st.error("URL must start with http:// or https://")
+    if analyze:
+        cleaned_url = url.strip()
+
+        if not cleaned_url:
+            st.warning(
+                "Enter a website URL."
+            )
+
+        elif not cleaned_url.startswith(
+            (
+                "http://",
+                "https://",
+            )
+        ):
+            st.error(
+                "URL must start with "
+                "http:// or https://"
+            )
+
         else:
-            with st.status("Running pipeline...", expanded=True) as status:
-                st.write("Scraping page with Playwright...")
+            with st.status(
+                "Running analysis...",
+                expanded=True,
+            ) as status:
+                st.write(
+                    "Scraping page with Playwright..."
+                )
+
                 try:
-                    results = _run_pipeline([url], backend)
-                    st.session_state.results = results
-                    st.session_state.last_urls = [url]
-                    status.update(label="Done!", state="complete", expanded=False)
+                    analysis_results = (
+                        _run_pipeline(
+                            [cleaned_url],
+                            backend,
+                        )
+                    )
+
+                    st.session_state.results = (
+                        analysis_results
+                    )
+
+                    st.session_state.last_urls = [
+                        cleaned_url
+                    ]
+
+                    status.update(
+                        label="Analysis complete",
+                        state="complete",
+                        expanded=False,
+                    )
+
                 except Exception as exc:
-                    status.update(label="Failed", state="error", expanded=True)
-                    st.error("Pipeline failed: " + str(exc))
-                    st.stop()
+                    status.update(
+                        label="Analysis failed",
+                        state="error",
+                        expanded=True,
+                    )
+
+                    st.error(
+                        f"Pipeline failed: {exc}"
+                    )
+
+    # -------------------------------------------------------------------------
+    # Batch analysis
+    # -------------------------------------------------------------------------
 
     st.write("")
-    st.markdown("### Batch analysis")
-    batch_text = st.text_area(
-        "URLs (one per line)", placeholder="https://example.com\nhttps://another.com",
-        height=100,
+    st.markdown(
+        "### Batch analysis"
     )
-    col_batch, _ = st.columns([1, 4])
+
+    batch_text = st.text_area(
+        "URLs",
+        placeholder=(
+            "https://example.com\n"
+            "https://another.com"
+        ),
+        height=120,
+        help="Enter one URL per line.",
+        key="batch_analysis_urls",
+    )
+
+    col_batch, _ = st.columns(
+        [1, 4]
+    )
+
     with col_batch:
-        batch_run = st.button("Run batch", use_container_width=True)
+        batch_run = st.button(
+            "Run batch",
+            use_container_width=True,
+            key="run_batch_analysis",
+        )
 
-    if batch_run and batch_text.strip():
-        urls = [u.strip() for u in batch_text.splitlines() if u.strip()]
-        bad = [u for u in urls if not u.startswith(("http://", "https://"))]
-        if bad:
-            st.error("Invalid URLs: " + str(bad))
+    if batch_run:
+        urls = [
+            value.strip()
+            for value
+            in batch_text.splitlines()
+            if value.strip()
+        ]
+
+        if not urls:
+            st.warning(
+                "Enter at least one URL."
+            )
+
         else:
-            with st.status("Processing " + str(len(urls)) + " URLs...", expanded=True) as status:
-                try:
-                    results = _run_pipeline(urls, backend)
-                    st.session_state.results = results
-                    st.session_state.last_urls = urls
-                    status.update(label="Done!", state="complete", expanded=False)
-                except Exception as exc:
-                    status.update(label="Failed", state="error", expanded=True)
-                    st.error("Batch failed: " + str(exc))
-                    st.stop()
+            invalid_urls = [
+                value
+                for value in urls
+                if not value.startswith(
+                    (
+                        "http://",
+                        "https://",
+                    )
+                )
+            ]
 
-    results = st.session_state.results
+            if invalid_urls:
+                st.error(
+                    "The following URLs are invalid:\n\n"
+                    + "\n".join(
+                        f"- {value}"
+                        for value in invalid_urls
+                    )
+                )
+
+            else:
+                with st.status(
+                    f"Processing {len(urls)} URLs...",
+                    expanded=True,
+                ) as status:
+                    try:
+                        batch_results = (
+                            _run_pipeline(
+                                urls,
+                                backend,
+                            )
+                        )
+
+                        st.session_state.results = (
+                            batch_results
+                        )
+
+                        st.session_state.last_urls = (
+                            urls
+                        )
+
+                        status.update(
+                            label=(
+                                f"Processed "
+                                f"{len(urls)} URLs"
+                            ),
+                            state="complete",
+                            expanded=False,
+                        )
+
+                    except Exception as exc:
+                        status.update(
+                            label="Batch failed",
+                            state="error",
+                            expanded=True,
+                        )
+
+                        st.error(
+                            f"Batch analysis failed: {exc}"
+                        )
+
+    # -------------------------------------------------------------------------
+    # Analysis results
+    # -------------------------------------------------------------------------
+
+    results = (
+        st.session_state.results
+    )
+
     if results:
-        st.write("")
-        st.markdown("### Results")
+        st.divider()
+
+        st.markdown(
+            "## Results"
+        )
 
         rows = []
-        for u, data in results.items():
-            rows.append({
-                "URL": u,
-                "Score": round(data["score"], 3),
-                "Pricing": len(data["signals"].get("pricing") or []),
-                "Hiring": len(data["signals"].get("hiring") or []),
-                "Tech": len(data["signals"].get("tech_stack") or []),
-                "Growth": len(data["signals"].get("growth_signals") or []),
-            })
-        df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        for result_url, data in results.items():
+            signals = (
+                data.get("signals")
+                or {}
+            )
+
+            rows.append(
+                {
+                    "URL": result_url,
+                    "Score": round(
+                        float(
+                            data.get(
+                                "score",
+                                0,
+                            )
+                            or 0
+                        ),
+                        3,
+                    ),
+                    "Pricing": len(
+                        signals.get(
+                            "pricing"
+                        )
+                        or []
+                    ),
+                    "Hiring": len(
+                        signals.get(
+                            "hiring"
+                        )
+                        or []
+                    ),
+                    "Tech": len(
+                        signals.get(
+                            "tech_stack"
+                        )
+                        or []
+                    ),
+                    "Growth": len(
+                        signals.get(
+                            "growth_signals"
+                        )
+                        or []
+                    ),
+                    "Status": (
+                        "Error"
+                        if data.get("error")
+                        else "Analyzed"
+                    ),
+                }
+            )
+
+        results_df = pd.DataFrame(
+            rows
+        )
+
+        st.dataframe(
+            results_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # ---------------------------------------------------------------------
+        # Score breakdown
+        # ---------------------------------------------------------------------
 
         st.write("")
-        st.markdown("### Score breakdown")
-        for u, data in results.items():
-            name = data["signals"].get("company_name") or u
-            with st.expander("**" + str(name) + "** - score " + str(round(data["score"], 3)), expanded=False):
-                col_g, col_b = st.columns([1, 2])
-                with col_g:
-                    st.markdown(_score_gauge(data["score"]), unsafe_allow_html=True)
-                with col_b:
-                    chart_df = _score_breakdown_df(data["breakdown"])
-                    if not chart_df.empty:
-                        st.bar_chart(chart_df, color="#4f46e5")
-                    else:
-                        st.caption("No signals matched scoring rules.")
+        st.markdown(
+            "### Score breakdown"
+        )
 
-        st.write("")
-        st.markdown("### Outreach")
-        st.markdown("<span style='color:#6b7280;'>Generate proposal letters and emails using your business details from the sidebar.</span>", unsafe_allow_html=True)
+        for result_url, data in results.items():
+            signals = (
+                data.get("signals")
+                or {}
+            )
 
-        for i, (u, data) in enumerate(results.items()):
-            name = data["signals"].get("company_name") or u
-            with st.expander("**" + str(name) + "** - " + u, expanded=False):
-                col_d, col_o = st.columns([1, 2])
-                with col_d:
-                    st.markdown("**Extracted signals**")
-                    st.json(data["signals"])
-                with col_o:
-                    st.markdown("**Ready-to-send**")
-                    signals = {
-                        "company_name": name,
-                        "types": data["signals"].get("tech_stack") or [],
-                        "website": u,
-                    }
-                    tk = dict(
-                        our_name=our_name, our_title=our_title,
-                        our_email=our_email, our_phone=our_phone,
-                        deliverables=our_services, value_prop=our_value_prop,
+            company_name = (
+                signals.get(
+                    "company_name"
+                )
+                or result_url
+            )
+
+            score = float(
+                data.get(
+                    "score",
+                    0,
+                )
+                or 0
+            )
+
+            with st.expander(
+                (
+                    f"{company_name} · "
+                    f"Score {round(score, 3)}"
+                ),
+                expanded=False,
+            ):
+                if data.get("error"):
+                    st.warning(
+                        data["error"]
                     )
-                    tp, te, tf = st.tabs(["Proposal letter", "Email", "Follow-up"])
-                    with tp:
-                        proposal_text = generate_proposal_letter(signals, **tk)
-                        st.markdown(proposal_text)
-                        col_pdf, col_docx, col_txt = st.columns(3)
-                        with col_pdf:
-                            st.download_button("PDF", data=export_pdf(proposal_text),
-                                file_name="proposal_" + name.replace(" ", "_") + ".pdf", mime="application/pdf", key="apdf_" + str(i))
-                        with col_docx:
-                            st.download_button("DOCX", data=export_docx(proposal_text, "Proposal for " + name),
-                                file_name="proposal_" + name.replace(" ", "_") + ".docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="adocx_" + str(i))
-                        with col_txt:
-                            st.download_button("TXT", data=export_txt(proposal_text),
-                                file_name="proposal_" + name.replace(" ", "_") + ".txt", mime="text/plain", key="atxt_" + str(i))
-                    with te:
-                        email_text = st.text_area("Edit email", value=generate_outreach_email(signals, **tk), height=200, key="aemail_edit_" + str(i))
-                        col_pdf, col_docx, col_txt = st.columns(3)
-                        with col_pdf:
-                            st.download_button("PDF", data=export_pdf(email_text),
-                                file_name="email_" + name.replace(" ", "_") + ".pdf", mime="application/pdf", key="aepdf_" + str(i))
-                        with col_docx:
-                            st.download_button("DOCX", data=export_docx(email_text, "Email for " + name),
-                                file_name="email_" + name.replace(" ", "_") + ".docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="aedocx_" + str(i))
-                        with col_txt:
-                            st.download_button("TXT", data=export_txt(email_text),
-                                file_name="email_" + name.replace(" ", "_") + ".txt", mime="text/plain", key="aetxt_" + str(i))
-                    with tf:
-                        followup_text = generate_followup_email(signals, **tk)
-                        st.markdown(followup_text)
-                        col_pdf, col_docx, col_txt = st.columns(3)
-                        with col_pdf:
-                            st.download_button("PDF", data=export_pdf(followup_text),
-                                file_name="followup_" + name.replace(" ", "_") + ".pdf", mime="application/pdf", key="afpdf_" + str(i))
-                        with col_docx:
-                            st.download_button("DOCX", data=export_docx(followup_text, "Follow-up for " + name),
-                                file_name="followup_" + name.replace(" ", "_") + ".docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="afdocx_" + str(i))
-                        with col_txt:
-                            st.download_button("TXT", data=export_txt(followup_text),
-                                file_name="followup_" + name.replace(" ", "_") + ".txt", mime="text/plain", key="aftxt_" + str(i))
+
+                col_gauge, col_breakdown = (
+                    st.columns(
+                        [1, 2]
+                    )
+                )
+
+                with col_gauge:
+                    st.markdown(
+                        _score_gauge(
+                            score
+                        ),
+                        unsafe_allow_html=True,
+                    )
+
+                with col_breakdown:
+                    chart_df = (
+                        _score_breakdown_df(
+                            data.get(
+                                "breakdown"
+                            )
+                        )
+                    )
+
+                    if not chart_df.empty:
+                        st.bar_chart(
+                            chart_df
+                        )
+
+                    else:
+                        st.caption(
+                            "No scoring rules matched."
+                        )
+
+        # ---------------------------------------------------------------------
+        # Outreach
+        # ---------------------------------------------------------------------
 
         st.write("")
-        col_exp, _ = st.columns([1, 4])
-        with col_exp:
-            st.download_button("Download results (JSON)", data=json.dumps(results, indent=2, default=str),
-                file_name="omnimodel_results.json", mime="application/json", use_container_width=False)
-    else:
-        st.info("Enter a URL above and click Analyze, or paste multiple URLs and click Run batch.")
+        st.markdown(
+            "### Outreach"
+        )
 
-# ---------------------------------------------------------------------------
-# Tab 2: Wide scraping
-# ---------------------------------------------------------------------------
+        st.caption(
+            "Generate proposal letters, outreach emails "
+            "and follow-up messages from extracted signals."
+        )
+
+        context = _template_context(
+            our_name=our_name,
+            our_title=our_title,
+            our_email=our_email,
+            our_phone=our_phone,
+            our_services=our_services,
+            our_value_prop=our_value_prop,
+        )
+
+        for index, (
+            result_url,
+            data,
+        ) in enumerate(
+            results.items()
+        ):
+            signals_data = (
+                data.get("signals")
+                or {}
+            )
+
+            company_name = (
+                signals_data.get(
+                    "company_name"
+                )
+                or result_url
+            )
+
+            with st.expander(
+                (
+                    f"{company_name} · "
+                    f"{result_url}"
+                ),
+                expanded=False,
+            ):
+                col_signals, col_outreach = (
+                    st.columns(
+                        [1, 2]
+                    )
+                )
+
+                with col_signals:
+                    st.markdown(
+                        "#### Extracted signals"
+                    )
+
+                    if signals_data:
+                        st.json(
+                            signals_data
+                        )
+                    else:
+                        st.info(
+                            "No signals were extracted."
+                        )
+
+                with col_outreach:
+                    st.markdown(
+                        "#### Ready-to-send"
+                    )
+
+                    outreach_signals = {
+                        "company_name": (
+                            company_name
+                        ),
+                        "types": (
+                            signals_data.get(
+                                "tech_stack"
+                            )
+                            or []
+                        ),
+                        "website": (
+                            result_url
+                        ),
+                    }
+
+                    proposal_tab, email_tab, followup_tab = (
+                        st.tabs(
+                            [
+                                "Proposal letter",
+                                "Email",
+                                "Follow-up",
+                            ]
+                        )
+                    )
+
+                    with proposal_tab:
+                        try:
+                            proposal_text = (
+                                generate_proposal_letter(
+                                    outreach_signals,
+                                    **context,
+                                )
+                            )
+
+                            st.markdown(
+                                proposal_text
+                            )
+
+                            _render_download_buttons(
+                                text=proposal_text,
+                                title=(
+                                    f"Proposal for "
+                                    f"{company_name}"
+                                ),
+                                filename_prefix="proposal",
+                                filename_name=company_name,
+                                key_prefix=(
+                                    f"analysis_"
+                                    f"proposal_{index}"
+                                ),
+                            )
+
+                        except Exception as exc:
+                            st.error(
+                                "Proposal generation "
+                                f"failed: {exc}"
+                            )
+
+                    with email_tab:
+                        try:
+                            generated_email = (
+                                generate_outreach_email(
+                                    outreach_signals,
+                                    **context,
+                                )
+                            )
+
+                            email_text = st.text_area(
+                                "Edit email",
+                                value=generated_email,
+                                height=220,
+                                key=(
+                                    f"analysis_email_"
+                                    f"edit_{index}"
+                                ),
+                            )
+
+                            _render_download_buttons(
+                                text=email_text,
+                                title=(
+                                    f"Email for "
+                                    f"{company_name}"
+                                ),
+                                filename_prefix="email",
+                                filename_name=company_name,
+                                key_prefix=(
+                                    f"analysis_"
+                                    f"email_{index}"
+                                ),
+                            )
+
+                        except Exception as exc:
+                            st.error(
+                                "Email generation "
+                                f"failed: {exc}"
+                            )
+
+                    with followup_tab:
+                        try:
+                            followup_text = (
+                                generate_followup_email(
+                                    outreach_signals,
+                                    **context,
+                                )
+                            )
+
+                            st.markdown(
+                                followup_text
+                            )
+
+                            _render_download_buttons(
+                                text=followup_text,
+                                title=(
+                                    f"Follow-up for "
+                                    f"{company_name}"
+                                ),
+                                filename_prefix="followup",
+                                filename_name=company_name,
+                                key_prefix=(
+                                    f"analysis_"
+                                    f"followup_{index}"
+                                ),
+                            )
+
+                        except Exception as exc:
+                            st.error(
+                                "Follow-up generation "
+                                f"failed: {exc}"
+                            )
+
+        st.write("")
+
+        st.download_button(
+            "Download analysis results (JSON)",
+            data=json.dumps(
+                results,
+                indent=2,
+                default=str,
+            ),
+            file_name="omnimodel_results.json",
+            mime="application/json",
+            key="download_analysis_json",
+        )
+
+    else:
+        st.info(
+            "Enter a website URL above or paste "
+            "multiple URLs to begin analysis."
+        )
+
+
+# =============================================================================
+# TAB 2
+# WIDE RANGE SEARCH
+# =============================================================================
+
+
 with tab_wide:
-    st.markdown("# Wide scraping")
-    st.markdown("<span style='color:#6b7280;'>Search for companies by industry and location. Select, review, and generate outreach.</span>", unsafe_allow_html=True)
+    st.markdown(
+        "## Wide Range Search"
+    )
+
+    st.caption(
+        "Discover companies by industry and location, "
+        "review their contact details and generate outreach."
+    )
+
     st.write("")
 
-    col_country, col_area, col_city, col_query = st.columns([1, 2, 2, 3])
+    col_country, col_area, col_city, col_query = (
+        st.columns(
+            [
+                1.5,
+                2,
+                2.5,
+                3,
+            ]
+        )
+    )
+
+    # -------------------------------------------------------------------------
+    # Country
+    # -------------------------------------------------------------------------
+
     with col_country:
+        default_country = (
+            _COUNTRIES.index(
+                "Ghana"
+            )
+            if "Ghana"
+            in _COUNTRIES
+            else 0
+        )
+
         country = st.selectbox(
-            "Country", options=_COUNTRIES,
-            index=_COUNTRIES.index("United States") if "United States" in _COUNTRIES else 0,
+            "Country",
+            options=_COUNTRIES,
+            index=default_country,
+            key="wide_country",
         )
+
+    # -------------------------------------------------------------------------
+    # Area / region
+    # -------------------------------------------------------------------------
+
     with col_area:
-        areas = _AREAS_BY_COUNTRY.get(country, [])
-        area = st.selectbox(
-            "Area / region", options=areas if areas else ["(type manually)"], index=0,
+        available_areas = (
+            _AREAS_BY_COUNTRY.get(
+                country,
+                [],
+            )
         )
+
+        if available_areas:
+            area = st.selectbox(
+                "Area / region",
+                options=available_areas,
+                key=(
+                    f"wide_area_"
+                    f"{country}"
+                ),
+            )
+
+        else:
+            area = ""
+
+            st.text_input(
+                "Area / region",
+                value="",
+                placeholder="Optional",
+                disabled=True,
+                key=(
+                    f"wide_area_disabled_"
+                    f"{country}"
+                ),
+            )
+
+    # -------------------------------------------------------------------------
+    # City
+    # -------------------------------------------------------------------------
+
     with col_city:
-        known_cities = _CITIES_BY_AREA.get(key, [])
+        area_key = (
+            f"{country}|{area}"
+        )
+
+        known_cities = (
+            _CITIES_BY_AREA.get(
+                area_key
+            )
+        )
+
+        if not known_cities:
+            known_cities = (
+                _CITIES_BY_COUNTRY.get(
+                    country,
+                    [],
+                )
+            )
+
         if known_cities:
             city_mode = st.radio(
-                "City", options=["Select from list", "Type manually"],
-                index=0, horizontal=True, key="city_mode_" + str(country) + "_" + str(area),
+                "City source",
+                options=[
+                    "Select",
+                    "Type manually",
+                ],
+                horizontal=True,
+                key=(
+                    f"city_mode_"
+                    f"{country}_"
+                    f"{area}"
+                ),
             )
-            if city_mode == "Select from list":
+
+            if city_mode == "Select":
                 city = st.selectbox(
-                    "City / town", options=known_cities, index=0,
-                    key="city_select_" + str(country) + "_" + str(area),
+                    "City / town",
+                    options=known_cities,
+                    key=(
+                        f"city_select_"
+                        f"{country}_"
+                        f"{area}"
+                    ),
                 )
+
             else:
                 city = st.text_input(
-                    "City / town", placeholder="e.g. Nungua, Madina, Teshie",
-                    key="city_type_" + str(country) + "_" + str(area),
+                    "City / town",
+                    placeholder=(
+                        "Enter a city or town"
+                    ),
+                    key=(
+                        f"city_manual_"
+                        f"{country}_"
+                        f"{area}"
+                    ),
                 )
+
         else:
             city = st.text_input(
-                "City / town", placeholder="Type city or town name",
-                key="city_type_generic",
+                "City / town",
+                placeholder=(
+                    "Enter a city or town"
+                ),
+                key=(
+                    f"city_generic_"
+                    f"{country}_"
+                    f"{area}"
+                ),
             )
 
-    # Show area info for Ghana regions
-    if country == "Ghana" and area in _Ghana_REGION_AREAS:
-        st.markdown("")
-        st.info(
-            "**" + str(area) + "** region: " + _Ghana_REGION_AREAS[area] + " km2 | "
-            + str(len(_Ghana_CITIES.get(area, []))) + " major cities"
-        )
-        if area in _Ghana_CITIES:
-            city_info = _Ghana_CITIES[area]
-            city_lines = []
-            for cname, carea in city_info:
-                if carea:
-                    city_lines.append(cname + " (" + carea + " km2)")
-                else:
-                    city_lines.append(cname)
-            st.caption("Cities: " + ", ".join(city_lines))
+    # -------------------------------------------------------------------------
+    # Industry
+    # -------------------------------------------------------------------------
+
     with col_query:
         query = st.text_input(
-            "Industry / business type", placeholder="e.g. coffee shop, plumber, dentist",
+            "Industry / business type",
+            placeholder=(
+                "e.g. software company, hotel, "
+                "dentist, restaurant"
+            ),
+            key="wide_query",
         )
 
-    col_max, col_run = st.columns([1, 2])
+    # -------------------------------------------------------------------------
+    # Ghana region metadata
+    # -------------------------------------------------------------------------
+
+    if (
+        country == "Ghana"
+        and area in _GHANA_CITIES
+    ):
+        city_info = (
+            _GHANA_CITIES.get(
+                area,
+                [],
+            )
+        )
+
+        region_area = (
+            _GHANA_REGION_AREAS.get(
+                area
+            )
+        )
+
+        if region_area:
+            st.info(
+                f"**{area} Region** · "
+                f"{region_area} km² · "
+                f"{len(city_info)} listed "
+                "cities/towns"
+            )
+
+        else:
+            st.info(
+                f"**{area} Region** · "
+                f"{len(city_info)} listed "
+                "cities/towns"
+            )
+
+        city_descriptions = []
+
+        for city_name, city_area in city_info:
+            if city_area:
+                city_descriptions.append(
+                    f"{city_name} "
+                    f"({city_area} km²)"
+                )
+            else:
+                city_descriptions.append(
+                    city_name
+                )
+
+        if city_descriptions:
+            st.caption(
+                "Locations: "
+                + ", ".join(
+                    city_descriptions
+                )
+            )
+
+    # -------------------------------------------------------------------------
+    # Search controls
+    # -------------------------------------------------------------------------
+
+    st.write("")
+
+    col_max, col_search = (
+        st.columns(
+            [1, 3]
+        )
+    )
+
     with col_max:
-        max_results = st.number_input("Max results", min_value=1, max_value=20, value=10)
-    with col_run:
+        max_results = st.number_input(
+            "Max results",
+            min_value=1,
+            max_value=20,
+            value=10,
+            step=1,
+            key="wide_max_results",
+        )
+
+    with col_search:
         st.write("")
-        wide_run = st.button("Search", type="primary", use_container_width=True)
 
-    if wide_run and query:
-        location = str(city) + ", " + str(country) if city != "(type manually)" else country
-        with st.status("Searching Places for '" + str(query) + "' in '" + str(location) + "'...", expanded=True) as status:
-            try:
-                wide_results = _run_wide_search(query, location, max_results=max_results, fetch_contacts=True)
-                st.session_state.wide_results = wide_results
-                status.update(label="Done!", state="complete", expanded=False)
-            except Exception as exc:
-                status.update(label="Failed", state="error", expanded=True)
-                st.error("Search failed: " + str(exc))
-                st.stop()
+        wide_run = st.button(
+            "Search companies",
+            type="primary",
+            use_container_width=True,
+            key="wide_search_button",
+        )
 
-    wide_results = st.session_state.wide_results
+    # -------------------------------------------------------------------------
+    # Search execution
+    # -------------------------------------------------------------------------
+
+    if wide_run:
+        cleaned_query = (
+            query.strip()
+        )
+
+        cleaned_city = (
+            city.strip()
+            if isinstance(
+                city,
+                str,
+            )
+            else str(city).strip()
+        )
+
+        if not cleaned_query:
+            st.warning(
+                "Enter an industry or business type."
+            )
+
+        elif not cleaned_city:
+            st.warning(
+                "Select or enter a city."
+            )
+
+        else:
+            location_parts = [
+                cleaned_city,
+            ]
+
+            if area:
+                location_parts.append(
+                    area
+                )
+
+            location_parts.append(
+                country
+            )
+
+            location = ", ".join(
+                location_parts
+            )
+
+            with st.status(
+                (
+                    f"Searching for "
+                    f"'{cleaned_query}' in "
+                    f"'{location}'..."
+                ),
+                expanded=True,
+            ) as status:
+                try:
+                    discovered_companies = (
+                        _run_wide_search(
+                            cleaned_query,
+                            location,
+                            max_results=int(
+                                max_results
+                            ),
+                            fetch_contacts=True,
+                        )
+                    )
+
+                    st.session_state.wide_results = (
+                        discovered_companies
+                    )
+
+                    status.update(
+                        label=(
+                            f"Found "
+                            f"{len(discovered_companies)} "
+                            "companies"
+                        ),
+                        state="complete",
+                        expanded=False,
+                    )
+
+                except Exception as exc:
+                    status.update(
+                        label="Search failed",
+                        state="error",
+                        expanded=True,
+                    )
+
+                    st.error(
+                        f"Search failed: {exc}"
+                    )
+
+    # -------------------------------------------------------------------------
+    # Wide results
+    # -------------------------------------------------------------------------
+
+    wide_results = (
+        st.session_state.wide_results
+    )
+
     if wide_results:
-        st.write("")
-        st.markdown("### Results (" + str(len(wide_results)) + " companies)")
+        st.divider()
+
+        st.markdown(
+            f"## Results ({len(wide_results)} companies)"
+        )
 
         rows = []
-        for r in wide_results:
-            rows.append({
-                "Name": r.get("name") or "",
-                "Phone": r.get("phone") or "",
-                "Website": r.get("website") or "",
-                "Address": (r.get("address") or "")[:60],
-                "Rating": r.get("rating") or "",
-                "Reviews": r.get("review_count") or 0,
-            })
-        df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        for result in wide_results:
+            rows.append(
+                {
+                    "Name": (
+                        result.get(
+                            "name"
+                        )
+                        or ""
+                    ),
+                    "Phone": (
+                        result.get(
+                            "phone"
+                        )
+                        or ""
+                    ),
+                    "Website": (
+                        result.get(
+                            "website"
+                        )
+                        or ""
+                    ),
+                    "Address": (
+                        result.get(
+                            "address"
+                        )
+                        or ""
+                    ),
+                    "Rating": (
+                        result.get(
+                            "rating"
+                        )
+                        or ""
+                    ),
+                    "Reviews": (
+                        result.get(
+                            "review_count"
+                        )
+                        or 0
+                    ),
+                }
+            )
+
+        wide_df = pd.DataFrame(
+            rows
+        )
+
+        st.dataframe(
+            wide_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # ---------------------------------------------------------------------
+        # Wide-result outreach
+        # ---------------------------------------------------------------------
 
         st.write("")
-        st.markdown("### Outreach")
-        st.markdown("<span style='color:#6b7280;'>Click a company to view contact details and generate outreach.</span>", unsafe_allow_html=True)
+        st.markdown(
+            "### Companies & outreach"
+        )
 
-        for i, r in enumerate(wide_results):
-            name = r.get("name") or "the company"
-            with st.expander("**" + str(name) + "** - " + str(r.get("address", "")), expanded=False):
-                col_d, col_o = st.columns([1, 2])
-                with col_d:
-                    st.markdown("**Contact details**")
-                    _render_contacts(r)
-                with col_o:
-                    st.markdown("**Ready-to-send**")
-                    signals = {
-                        "company_name": name,
-                        "types": r.get("types") or [],
-                        "website": r.get("website") or "",
-                    }
-                    tk = dict(
-                        our_name=our_name, our_title=our_title,
-                        our_email=our_email, our_phone=our_phone,
-                        deliverables=our_services, value_prop=our_value_prop,
+        st.caption(
+            "Open a company to view its contact details "
+            "and generate proposal material."
+        )
+
+        context = _template_context(
+            our_name=our_name,
+            our_title=our_title,
+            our_email=our_email,
+            our_phone=our_phone,
+            our_services=our_services,
+            our_value_prop=our_value_prop,
+        )
+
+        for index, result in enumerate(
+            wide_results
+        ):
+            company_name = (
+                result.get(
+                    "name"
+                )
+                or "Unknown company"
+            )
+
+            company_address = (
+                result.get(
+                    "address"
+                )
+                or "Address unavailable"
+            )
+
+            with st.expander(
+                (
+                    f"{company_name} · "
+                    f"{company_address}"
+                ),
+                expanded=False,
+            ):
+                col_details, col_outreach = (
+                    st.columns(
+                        [1, 2]
                     )
-                    tp, te, tf = st.tabs(["Proposal letter", "Email", "Follow-up"])
-                    with tp:
-                        proposal_text = generate_proposal_letter(signals, **tk)
-                        st.markdown(proposal_text)
-                        col_pdf, col_docx, col_txt = st.columns(3)
-                        with col_pdf:
-                            st.download_button("PDF", data=export_pdf(proposal_text),
-                                file_name="proposal_" + str(name).replace(" ", "_") + ".pdf", mime="application/pdf", key="wpdf_" + str(i))
-                        with col_docx:
-                            st.download_button("DOCX", data=export_docx(proposal_text, "Proposal for " + str(name)),
-                                file_name="proposal_" + str(name).replace(" ", "_") + ".docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="wdocx_" + str(i))
-                        with col_txt:
-                            st.download_button("TXT", data=export_txt(proposal_text),
-                                file_name="proposal_" + str(name).replace(" ", "_") + ".txt", mime="text/plain", key="wtxt_" + str(i))
-                    with te:
-                        email_text = st.text_area("Edit email", value=generate_outreach_email(signals, **tk), height=200, key="wemail_edit_" + str(i))
-                        col_pdf, col_docx, col_txt = st.columns(3)
-                        with col_pdf:
-                            st.download_button("PDF", data=export_pdf(email_text),
-                                file_name="email_" + str(name).replace(" ", "_") + ".pdf", mime="application/pdf", key="wepdf_" + str(i))
-                        with col_docx:
-                            st.download_button("DOCX", data=export_docx(email_text, "Email for " + str(name)),
-                                file_name="email_" + str(name).replace(" ", "_") + ".docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="wedocx_" + str(i))
-                        with col_txt:
-                            st.download_button("TXT", data=export_txt(email_text),
-                                file_name="email_" + str(name).replace(" ", "_") + ".txt", mime="text/plain", key="wetxt_" + str(i))
-                    with tf:
-                        followup_text = generate_followup_email(signals, **tk)
-                        st.markdown(followup_text)
-                        col_pdf, col_docx, col_txt = st.columns(3)
-                        with col_pdf:
-                            st.download_button("PDF", data=export_pdf(followup_text),
-                                file_name="followup_" + str(name).replace(" ", "_") + ".pdf", mime="application/pdf", key="wfpdf_" + str(i))
-                        with col_docx:
-                            st.download_button("DOCX", data=export_docx(followup_text, "Follow-up for " + str(name)),
-                                file_name="followup_" + str(name).replace(" ", "_") + ".docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", key="wfdocx_" + str(i))
-                        with col_txt:
-                            st.download_button("TXT", data=export_txt(followup_text),
-                                file_name="followup_" + str(name).replace(" ", "_") + ".txt", mime="text/plain", key="wftxt_" + str(i))
+                )
+
+                with col_details:
+                    st.markdown(
+                        "#### Contact details"
+                    )
+
+                    _render_contacts(
+                        result
+                    )
+
+                with col_outreach:
+                    st.markdown(
+                        "#### Ready-to-send"
+                    )
+
+                    outreach_signals = {
+                        "company_name": (
+                            company_name
+                        ),
+                        "types": (
+                            result.get(
+                                "types"
+                            )
+                            or []
+                        ),
+                        "website": (
+                            result.get(
+                                "website"
+                            )
+                            or ""
+                        ),
+                    }
+
+                    proposal_tab, email_tab, followup_tab = (
+                        st.tabs(
+                            [
+                                "Proposal letter",
+                                "Email",
+                                "Follow-up",
+                            ]
+                        )
+                    )
+
+                    with proposal_tab:
+                        try:
+                            proposal_text = (
+                                generate_proposal_letter(
+                                    outreach_signals,
+                                    **context,
+                                )
+                            )
+
+                            st.markdown(
+                                proposal_text
+                            )
+
+                            _render_download_buttons(
+                                text=proposal_text,
+                                title=(
+                                    f"Proposal for "
+                                    f"{company_name}"
+                                ),
+                                filename_prefix="proposal",
+                                filename_name=company_name,
+                                key_prefix=(
+                                    f"wide_"
+                                    f"proposal_{index}"
+                                ),
+                            )
+
+                        except Exception as exc:
+                            st.error(
+                                "Proposal generation "
+                                f"failed: {exc}"
+                            )
+
+                    with email_tab:
+                        try:
+                            generated_email = (
+                                generate_outreach_email(
+                                    outreach_signals,
+                                    **context,
+                                )
+                            )
+
+                            email_text = st.text_area(
+                                "Edit email",
+                                value=generated_email,
+                                height=220,
+                                key=(
+                                    f"wide_email_"
+                                    f"edit_{index}"
+                                ),
+                            )
+
+                            _render_download_buttons(
+                                text=email_text,
+                                title=(
+                                    f"Email for "
+                                    f"{company_name}"
+                                ),
+                                filename_prefix="email",
+                                filename_name=company_name,
+                                key_prefix=(
+                                    f"wide_"
+                                    f"email_{index}"
+                                ),
+                            )
+
+                        except Exception as exc:
+                            st.error(
+                                "Email generation "
+                                f"failed: {exc}"
+                            )
+
+                    with followup_tab:
+                        try:
+                            followup_text = (
+                                generate_followup_email(
+                                    outreach_signals,
+                                    **context,
+                                )
+                            )
+
+                            st.markdown(
+                                followup_text
+                            )
+
+                            _render_download_buttons(
+                                text=followup_text,
+                                title=(
+                                    f"Follow-up for "
+                                    f"{company_name}"
+                                ),
+                                filename_prefix="followup",
+                                filename_name=company_name,
+                                key_prefix=(
+                                    f"wide_"
+                                    f"followup_{index}"
+                                ),
+                            )
+
+                        except Exception as exc:
+                            st.error(
+                                "Follow-up generation "
+                                f"failed: {exc}"
+                            )
 
         st.write("")
-        col_exp, _ = st.columns([1, 4])
-        with col_exp:
-            st.download_button("Download all results (JSON)", data=json.dumps(wide_results, indent=2, default=str),
-                file_name="omnimodel_wide_results.json", mime="application/json", use_container_width=False)
+
+        st.download_button(
+            "Download all search results (JSON)",
+            data=json.dumps(
+                wide_results,
+                indent=2,
+                default=str,
+            ),
+            file_name="omnimodel_wide_results.json",
+            mime="application/json",
+            key="download_wide_json",
+        )
+
     else:
-        st.info("Select a country and city, enter an industry, then click Search.")
+        st.info(
+            "Select a location, enter an industry "
+            "or business type, then click Search companies."
+        )
