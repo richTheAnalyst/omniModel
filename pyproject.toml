@@ -17,6 +17,10 @@ scraping = [
 ]
 ui = [
     "streamlit>=1.40.0",
+    "pandas",
+    "pyyaml",
+    "reportlab",
+    "python-docx",
 ]
 dev = [
     "pytest>=8.0.0",
