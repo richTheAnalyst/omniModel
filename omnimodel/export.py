@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-from typing import Any
 
 
 def export_pdf(text: str) -> bytes:
@@ -31,7 +30,6 @@ def export_pdf(text: str) -> bytes:
 def export_docx(text: str, title: str = "Proposal") -> bytes:
     """Export text as a DOCX using python-docx."""
     from docx import Document
-    from docx.shared import Pt
 
     doc = Document()
     doc.add_heading(title, level=0)

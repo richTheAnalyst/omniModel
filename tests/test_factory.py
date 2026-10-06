@@ -5,7 +5,6 @@ import pytest
 from omnimodel.config import Config
 from omnimodel.extraction.factory import (
     available_backends,
-    extract_signals,
     get_extractor,
 )
 
@@ -38,7 +37,8 @@ class TestBackendResolution:
         original = factory_mod.config
         factory_mod.config = config
         try:
-            assert get_extractor().__module__ == "omnimodel.extraction.openrouter_extractor"
+            module = get_extractor().__module__
+            assert module == "omnimodel.extraction.openrouter_extractor"
         finally:
             factory_mod.config = original
 
@@ -68,8 +68,14 @@ class TestBackendResolution:
         original = factory_mod.config
         factory_mod.config = config
         try:
-            assert get_extractor("openrouter").__module__ == "omnimodel.extraction.openrouter_extractor"
-            assert get_extractor("claude").__module__ == "omnimodel.extraction.claude_extractor"
+            assert (
+                get_extractor("openrouter").__module__
+                == "omnimodel.extraction.openrouter_extractor"
+            )
+            assert (
+                get_extractor("claude").__module__
+                == "omnimodel.extraction.claude_extractor"
+            )
         finally:
             factory_mod.config = original
 

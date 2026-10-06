@@ -1,0 +1,99 @@
+# A profile describes WHO is selling, WHAT they sell, WHICH sectors fit, and WHERE. Copy this file to make your own.
+name: Simba Gate Security
+country: Ghana
+business: {our_name: "Simba Gate Security Ltd", our_title: "Business Development", our_email: "info@simbatgate.com", our_phone: "+233 53 377 1014"}
+
+offerings:
+  guarding:  {label: "Manned Guarding", description: "trained officers and mobile patrol teams protecting corporate, residential and industrial sites around the clock"}
+  event_vip: {label: "Event VIP Protection", description: "controlled entrances, managed crowds and discreet VIP protection for high-profile occasions"}
+  k9:        {label: "Canine K9 Security", description: "specialist K9 teams that detect threats, deter intruders and strengthen security in critical environments"}
+  technical: {label: "Technical Security", description: "CCTV, access control and cyber-focused solutions that manage electronic risks"}
+
+# query = Google Places search text; priority = how attractive the sector is overall (0-1); fit = how well each offering suits it (0-1)
+sectors:
+  mining:      {label: "Mining", query: "mining company", priority: 1.0, fit: {guarding: 1, k9: 1, technical: .6, event_vip: .1}}
+  bank:        {label: "Banks", query: "bank", priority: .9, fit: {guarding: 1, k9: .2, technical: .95, event_vip: .2}}
+  industrial:  {label: "Industrial / factories", query: "factory manufacturing company", priority: .8, fit: {guarding: .9, k9: .8, technical: .7, event_vip: .1}}
+  logistics:   {label: "Logistics / warehouses", query: "logistics warehouse company", priority: .8, fit: {guarding: .9, k9: .8, technical: .7, event_vip: .1}}
+  hospital:    {label: "Hospitals", query: "private hospital clinic", priority: .6, fit: {guarding: .9, k9: .2, technical: .8, event_vip: .1}}
+  school:      {label: "Schools / universities", query: "school university", priority: .5, fit: {guarding: .8, k9: .1, technical: .7, event_vip: .2}}
+  retail:      {label: "Retail / malls", query: "shopping mall supermarket", priority: .7, fit: {guarding: .8, k9: .2, technical: .9, event_vip: .2}}
+  hospitality: {label: "Hotels / venues", query: "hotel event venue", priority: .6, fit: {guarding: .7, k9: .2, technical: .7, event_vip: 1}}
+  events:      {label: "Event organisers", query: "event management company", priority: .7, fit: {guarding: .4, k9: .2, technical: .3, event_vip: 1}}
+  office:      {label: "Offices", query: "corporate office", priority: .5, fit: {guarding: .7, k9: .1, technical: 1, event_vip: .2}}
+
+geography:
+  Greater Accra: [Accra, Tema, Madina, Spintex]
+  Ashanti: [Kumasi, Obuasi]
+  Western: [Sekondi-Takoradi, Tarkwa]
+  Eastern: [Koforidua, Nsawam]
+  Northern: [Tamale]
+  Central: [Cape Coast]
+
+# Scoring weights (relative; they do not need to add to 100).
+weights: {offering_fit: 30, sector_priority: 20, size: 12.5, footprint: 12.5, cluster: 15, buying_signals: 10}
+# Words in job posts that count as a buying signal for this business.
+# Lowercase stems, matched as substrings against each advertised role.
+# hse = health & safety (standard in Ghanaian mining/industrial job ads).
+# Kept deliberately specific: bare "officer"/"supervisor" would false-positive on
+# "Chief Financial Officer" and "Maintenance Supervisor", so they are not listed.
+buying_signal_keywords: [secur, guard, safety, hse, patrol, surveillance, cctv, access control, control room]
+
+# Passed to the LLM extractor. Keep the keys site_count, size_estimate, hiring, growth_signals.
+signal_schema:
+  company_name: "string or null"
+  hiring: "list of open roles (include any security, guard or facilities roles) or null"
+  growth_signals: "list of expansion, new site or branch, construction, tender, award or partnership mentions, or null"
+  site_count: "integer: number of distinct branches, plants, mines or locations mentioned, or null. Do not guess."
+  size_estimate: "integer: approximate staff headcount ONLY if the text states it, otherwise null"
+  existing_provider: "short string: any mention of a current supplier of this kind of service, otherwise null"
+
+# STARTER notes: your team must review and replace with verified local context. Leave region/sector/offering out to match all.
+context_notes:
+  - {region: Greater Accra, sector: retail, note: "Busy commercial areas see high foot traffic, which raises shoplifting and after-hours break-in exposure."}
+  - {region: Greater Accra, sector: logistics, note: "Port-adjacent and warehouse zones carry cargo and inventory theft exposure during loading and overnight storage."}
+  - {region: Greater Accra, sector: office, offering: technical, note: "Multi-tenant offices benefit from access control and CCTV to manage visitor and after-hours access."}
+  - {region: Western, sector: mining, note: "Remote mining and concession sites face perimeter intrusion and equipment or product theft exposure."}
+
+# Placeholders: {company} {city} {offering_label} {offering_desc} {local_context} {our_name} {our_title} {our_email} {our_phone}
+outreach:
+  email: |
+    Subject: {offering_label} for {company}
+
+    Dear {company} team,
+
+    {our_name} provides {offering_label}: {offering_desc}. {local_context}
+
+    We would welcome the chance to carry out a no-obligation assessment in {city} and share what we find.
+
+    Kind regards,
+    {our_title}, {our_name}
+    {our_email} | {our_phone}
+
+    To stop receiving messages from us, reply with UNSUBSCRIBE.
+  proposal: |
+    {our_name}
+    {our_email} | {our_phone}
+
+    Proposal: {offering_label} for {company}, {city}
+
+    Scope: {offering_desc}. {local_context}
+
+    Proposed next steps:
+    1. Site visit and assessment.
+    2. Written plan and pricing for your approval.
+    3. Start on an agreed date.
+
+    Prepared by {our_name} ({our_title}). Pricing is confirmed after the assessment.
+  followup: |
+    Subject: Following up: {offering_label} for {company}
+
+    Dear {company} team,
+
+    I wanted to follow up on my earlier note about {offering_label} in {city}. If a short assessment would be useful, I can arrange a time that suits you.
+
+    Kind regards,
+    {our_title}, {our_name}
+    {our_email} | {our_phone}
+
+    Reply UNSUBSCRIBE to stop receiving messages.

@@ -1,0 +1,11 @@
+.venv
+.env
+.git
+.idea
+__pycache__
+*.pyc
+*.zip
+tests
+pages
+streamlit_app.py
+tmp_*

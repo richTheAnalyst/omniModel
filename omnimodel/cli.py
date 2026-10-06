@@ -3,13 +3,13 @@
 Examples
 --------
     # Scrape a site and extract signals
-    python -m omnimodel.scrape https://example.com
+    python -m omnimodel scrape https://example.com --extract
 
     # Search Google Places
-    python -m omnimodel.places "coffee shop near Seattle"
+    python -m omnimodel places "coffee shop near Seattle"
 
     # Score extracted signals
-    python -m omnimodel.score --signals signals.json
+    python -m omnimodel score --signals signals.json
 """
 
 from __future__ import annotations
@@ -20,13 +20,14 @@ import json
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 from . import __version__
 from .config import config
 from .extraction.factory import extract_signals
 from .places.google_places import get_place, search_places
-from .scraping.playwright_scraper import fetch_page, fetch_pages
 from .scoring.weighted_rules import default_rules, score_signals
+from .scraping.playwright_scraper import fetch_page, fetch_pages
 
 logger = logging.getLogger("omnimodel")
 
@@ -151,8 +152,6 @@ def cmd_scrape(args: argparse.Namespace) -> int:
             extracted[url] = extract_signals(page_text, backend=args.backend)
 
         if args.score:
-            from .scoring.weighted_rules import default_rules, score_signals
-
             scored: dict[str, Any] = {}
             for url, signals in extracted.items():
                 result = score_signals(signals, default_rules())

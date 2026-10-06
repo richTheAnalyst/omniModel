@@ -1,0 +1,45 @@
+# Example of a completely different business using the same engine. Replace every value with your own.
+name: Example IT Services
+country: Nigeria
+business: {our_name: "Example IT Ltd", our_title: "Account Manager", our_email: "sales@example.com", our_phone: ""}
+offerings:
+  managed_it: {label: "Managed IT Support", description: "monitoring, helpdesk and maintenance for your devices and network"}
+  cyber:      {label: "Cybersecurity Audit", description: "a review of your systems with a prioritised list of fixes"}
+sectors:
+  bank:   {label: "Banks", query: "bank", priority: .9, fit: {managed_it: .8, cyber: 1}}
+  school: {label: "Schools", query: "private school", priority: .5, fit: {managed_it: 1, cyber: .5}}
+  office: {label: "Offices", query: "corporate office", priority: .6, fit: {managed_it: 1, cyber: .7}}
+geography:
+  Lagos: [Ikeja, Victoria Island, Lekki]
+  FCT: [Abuja]
+weights: {offering_fit: 35, sector_priority: 15, size: 20, footprint: 10, cluster: 10, buying_signals: 10}
+buying_signal_keywords: [it support, network, systems, devops]
+signal_schema:
+  company_name: "string or null"
+  hiring: "list of open roles or null"
+  growth_signals: "list of expansion, new office or funding mentions, or null"
+  site_count: "integer: number of offices mentioned, or null"
+  size_estimate: "integer: staff headcount only if stated, otherwise null"
+  existing_provider: "short string: any mention of a current IT provider, otherwise null"
+context_notes: []
+outreach:
+  email: |
+    Subject: {offering_label} for {company}
+
+    Dear {company} team,
+
+    {our_name} offers {offering_label}: {offering_desc}. {local_context}
+
+    May we arrange a short call in {city}?
+
+    {our_title}, {our_name} | {our_email}
+    Reply UNSUBSCRIBE to stop receiving messages.
+  proposal: |
+    Proposal: {offering_label} for {company}
+    {offering_desc}. {local_context}
+    Prepared by {our_title}, {our_name}.
+  followup: |
+    Subject: Following up on {offering_label}
+
+    Dear {company} team, a quick follow-up on my earlier note. Happy to talk whenever suits you.
+    {our_title}, {our_name}

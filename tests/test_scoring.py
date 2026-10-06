@@ -22,7 +22,12 @@ class TestScoreSignals:
         }
         result = score_signals(signals, default_rules())
         assert 0.0 <= result.score <= 1.0
-        assert set(result.breakdown) == {"pricing", "hiring", "tech_stack", "growth_signals"}
+        assert set(result.breakdown) == {
+            "pricing",
+            "hiring",
+            "tech_stack",
+            "growth_signals",
+        }
 
     def test_missing_signals_skipped(self):
         result = score_signals({"pricing": [{"plan": "Pro"}]}, default_rules())
@@ -30,12 +35,16 @@ class TestScoreSignals:
 
     def test_hiring_score_capped_at_one(self):
         # 10+ roles → score 1.0
-        result = score_signals({"hiring": [f"role-{i}" for i in range(15)]}, default_rules())
+        result = score_signals(
+            {"hiring": [f"role-{i}" for i in range(15)]}, default_rules()
+        )
         assert result.breakdown["hiring"] == 1.0
 
     def test_hiring_score_proportional(self):
         # 5 roles → 0.5
-        result = score_signals({"hiring": [f"role-{i}" for i in range(5)]}, default_rules())
+        result = score_signals(
+            {"hiring": [f"role-{i}" for i in range(5)]}, default_rules()
+        )
         assert result.breakdown["hiring"] == 0.5
 
     def test_tech_stack_score_proportional(self):

@@ -28,7 +28,6 @@ from omnimodel.templates import (
     generate_proposal_letter,
 )
 
-
 # =============================================================================
 # PAGE CONFIGURATION
 # =============================================================================
@@ -288,7 +287,7 @@ def _render_download_buttons(
             file_name=f"{filename_prefix}_{safe_name}.pdf",
             mime="application/pdf",
             key=f"{key_prefix}_pdf",
-            use_container_width=True,
+            width="stretch",
         )
 
     with col_docx:
@@ -304,7 +303,7 @@ def _render_download_buttons(
                 "wordprocessingml.document"
             ),
             key=f"{key_prefix}_docx",
-            use_container_width=True,
+            width="stretch",
         )
 
     with col_txt:
@@ -314,7 +313,7 @@ def _render_download_buttons(
             file_name=f"{filename_prefix}_{safe_name}.txt",
             mime="text/plain",
             key=f"{key_prefix}_txt",
-            use_container_width=True,
+            width="stretch",
         )
 
 
@@ -1239,7 +1238,7 @@ with tab_analyze:
         analyze = st.button(
             "Analyze",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             key="analyze_single_url",
         )
 
@@ -1342,7 +1341,7 @@ with tab_analyze:
     with col_batch:
         batch_run = st.button(
             "Run batch",
-            use_container_width=True,
+            width="stretch",
             key="run_batch_analysis",
         )
 
@@ -1495,7 +1494,7 @@ with tab_analyze:
 
         st.dataframe(
             results_df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -2058,7 +2057,7 @@ with tab_wide:
         wide_run = st.button(
             "Search companies",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             key="wide_search_button",
         )
 
@@ -2218,7 +2217,7 @@ with tab_wide:
 
         st.dataframe(
             wide_df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
