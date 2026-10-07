@@ -13,7 +13,6 @@ from urllib.parse import urlparse
 from omnimodel.export import export_docx, export_pdf, export_txt
 from omnimodel.extraction.factory import available_backends, get_extractor
 from omnimodel.places.google_places import search_by_location
-from omnimodel.profile_loader import list_profiles, load_profile
 from omnimodel.scoring.profile_scoring import (
     best_offering,
     lead_from_signals,
@@ -37,36 +36,6 @@ class Upstream(Exception):
     """Google, the website, or the LLM failed. Becomes HTTP 502."""
 
 
-# ---------------------------------------------------------------- profiles
-def get_profile(name: str) -> dict:
-    # Checking the stem against the known list also stops "../" tricks in the name.
-    if name not in list_profiles():
-        raise NotFound(
-            f"Unknown profile '{name}'. Available: {', '.join(list_profiles())}"
-        )
-    try:
-        return load_profile(name)
-    except (ValueError, OSError) as exc:
-        raise BadInput(f"Profile '{name}' is not usable: {exc}") from exc
-
-
-def public_profile(name: str) -> dict:
-    """What a frontend needs to build its dropdowns.
-
-    Outreach templates stay on the server.
-    """
-    p = get_profile(name)
-    return {
-        "id": name,
-        "name": p["name"],
-        "country": p["country"],
-        "business": p["business"],
-        "offerings": {k: v["label"] for k, v in p["offerings"].items()},
-        "sectors": {k: v["label"] for k, v in p["sectors"].items()},
-        "geography": p["geography"],
-    }
-
-
 # ---------------------------------------------------------------- scoring helper
 def _scored(P: dict, lead: dict, signals: dict | None, cluster_size: int) -> dict:
     scores = score_lead(
@@ -82,15 +51,15 @@ def _scored(P: dict, lead: dict, signals: dict | None, cluster_size: int) -> dic
 
 
 # ---------------------------------------------------------------- search
-@lru_cache(maxsize=128)  # repeat searches are free; the cache clears on restart
+@lru_cache(maxsize=128)
 def _places(query: str, location: str, n: int) -> tuple:
     return tuple(search_by_location(query, location, max_results=n))
 
 
 def search_leads(
-    profile: str, region: str, city: str, sector: str, max_results: int
+    profile: dict, region: str, city: str, sector: str, max_results: int
 ) -> dict:
-    P = get_profile(profile)
+    P = profile
     if region not in P["geography"]:
         raise BadInput(
             f"Unknown region '{region}' for this profile. "
@@ -107,7 +76,7 @@ def search_leads(
     location = f"{city}, {region}, {P['country']}"
     try:
         raw = _places(P["sectors"][sector]["query"], location, n)
-    except RuntimeError as exc:  # e.g. GOOGLE_PLACES_API_KEY missing
+    except RuntimeError as exc:
         raise Upstream(str(exc)) from exc
     except Exception as exc:
         raise Upstream(f"Google Places search failed: {exc}") from exc
@@ -130,7 +99,7 @@ def search_leads(
         key=lambda x: x["scores"].get(x["best_offering"], {}).get("score", 0.0),
         reverse=True,
     )
-    return {"profile": profile, "count": len(leads), "leads": leads}
+    return {"profile": P["name"], "count": len(leads), "leads": leads}
 
 
 # ---------------------------------------------------------------- analyze a website
@@ -170,7 +139,7 @@ def _scrape(urls: list[str]) -> dict[str, str]:
 
 
 def analyze_url(
-    profile: str,
+    profile: dict,
     url: str,
     sector: str,
     region: str,
@@ -179,7 +148,7 @@ def analyze_url(
     review_count: int | None = None,
     backend: str | None = None,
 ) -> dict:
-    P = get_profile(profile)
+    P = profile
     if sector not in P["sectors"]:
         raise BadInput(
             f"Unknown sector '{sector}' for this profile. "
@@ -214,13 +183,13 @@ def analyze_url(
 
 # ---------------------------------------------------------------- outreach and export
 def make_outreach(
-    profile: str,
+    profile: dict,
     kind: str,
     offering: str,
     lead: dict,
     business: dict | None = None,
 ) -> str:
-    P = get_profile(profile)
+    P = profile
     if kind not in ("email", "proposal", "followup"):
         raise BadInput("kind must be email, proposal or followup.")
     if offering not in P["offerings"]:

@@ -13,7 +13,6 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from omnimodel.extraction.factory import available_backends
-from omnimodel.profile_loader import list_profiles
 
 from . import service
 
@@ -47,8 +46,72 @@ def _run(fn, *args, **kwargs):
 
 
 # ------------------------------------------------------------------ request shapes
+class BusinessInfo(BaseModel):
+    our_name: str
+    our_title: str
+    our_email: str
+    our_phone: str
+
+
+class OfferingInfo(BaseModel):
+    label: str
+    description: str
+
+
+class SectorInfo(BaseModel):
+    label: str
+    query: str
+    priority: float
+    fit: dict[str, float]
+
+
+class WeightsInfo(BaseModel):
+    offering_fit: float
+    sector_priority: float
+    size: float
+    footprint: float
+    cluster: float
+    buying_signals: float
+
+
+class SignalSchema(BaseModel):
+    company_name: str
+    hiring: str
+    growth_signals: str
+    site_count: str
+    size_estimate: str
+    existing_provider: str
+
+
+class ContextNote(BaseModel):
+    region: str | None = None
+    sector: str | None = None
+    offering: str | None = None
+    note: str
+
+
+class OutreachTemplates(BaseModel):
+    email: str
+    proposal: str
+    followup: str
+
+
+class ProfileData(BaseModel):
+    name: str
+    country: str
+    business: BusinessInfo
+    offerings: dict[str, OfferingInfo]
+    sectors: dict[str, SectorInfo]
+    geography: dict[str, list[str]]
+    weights: WeightsInfo
+    buying_signal_keywords: list[str]
+    signal_schema: SignalSchema
+    context_notes: list[ContextNote] | None = None
+    outreach: OutreachTemplates
+
+
 class SearchRequest(BaseModel):
-    profile: str
+    profile: ProfileData
     region: str
     city: str
     sector: str
@@ -56,14 +119,14 @@ class SearchRequest(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
-    profile: str
+    profile: ProfileData
     url: str
     sector: str
     region: str
     city: str
     name: str | None = None
     review_count: int | None = None
-    backend: str | None = None  # "openrouter", "ollama" or "claude"; blank = server default
+    backend: str | None = None
 
 
 class LeadIn(BaseModel):
@@ -74,11 +137,11 @@ class LeadIn(BaseModel):
 
 
 class OutreachRequest(BaseModel):
-    profile: str
+    profile: ProfileData
     kind: Literal["email", "proposal", "followup"]
     offering: str
     lead: LeadIn
-    business: dict[str, str] | None = None  # optional overrides: our_name, our_title, our_email, our_phone
+    business: dict[str, str] | None = None
 
 
 class ExportRequest(BaseModel):
@@ -99,30 +162,20 @@ def backends():
     return {"backends": available_backends()}
 
 
-@app.get("/profiles", dependencies=[Depends(require_key)])
-def profiles():
-    return {"profiles": list_profiles()}
-
-
-@app.get("/profiles/{name}", dependencies=[Depends(require_key)])
-def profile_detail(name: str):
-    return _run(service.public_profile, name)
-
-
 @app.post("/search", dependencies=[Depends(require_key)])
 def search(req: SearchRequest):
-    return _run(service.search_leads, req.profile, req.region, req.city, req.sector, req.max_results)
+    return _run(service.search_leads, req.profile.model_dump(), req.region, req.city, req.sector, req.max_results)
 
 
 @app.post("/analyze", dependencies=[Depends(require_key)])
 def analyze(req: AnalyzeRequest):
-    return _run(service.analyze_url, req.profile, req.url, req.sector, req.region, req.city,
+    return _run(service.analyze_url, req.profile.model_dump(), req.url, req.sector, req.region, req.city,
                 req.name, req.review_count, req.backend)
 
 
 @app.post("/outreach", dependencies=[Depends(require_key)])
 def outreach(req: OutreachRequest):
-    text = _run(service.make_outreach, req.profile, req.kind, req.offering, req.lead.model_dump(), req.business)
+    text = _run(service.make_outreach, req.profile.model_dump(), req.kind, req.offering, req.lead.model_dump(), req.business)
     return {"kind": req.kind, "text": text}
 
 
