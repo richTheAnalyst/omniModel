@@ -66,9 +66,13 @@ def score_lead(lead, profile):
         "buying_signals": min(lead.get("signal_count") or 0, 3) / 3,
     }
     out = {}
-    for offering in profile.get("offerings") or {}:
+    offerings = profile.get("offerings") or {}
+    for offering in offerings:
+        fit_val = fit.get(offering, 0.0)
+        if offering not in fit:
+            fit_val = 0.0
         breakdown = {
-            "offering_fit": weights["offering_fit"] * fit.get(offering, 0.3),
+            "offering_fit": weights["offering_fit"] * fit_val,
             **{k: weights[k] * v for k, v in parts.items()},
         }
         out[offering] = {
@@ -82,4 +86,4 @@ def best_offering(scores):
     """The highest-scoring offering, or None when there is nothing to compare."""
     if not scores:
         return None
-    return max(scores, key=lambda o: scores[o]["score"])
+    return max(scores, key=lambda o: scores[o]["score"]) if scores else None
