@@ -5,7 +5,7 @@ from __future__ import annotations
 import hmac
 import os
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,14 +13,24 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from omnimodel.extraction.factory import available_backends
+from omnimodel.profile_loader import list_profiles
 
 from . import service
 
 app = FastAPI(title="omniModel Lead API", version="0.1.0")
 
-# Which frontend addresses may call this API. Add yours in .env as CORS_ORIGINS=http://localhost:3000,https://myapp.com
-_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",") if o.strip()]
-app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_methods=["*"], allow_headers=["*"])
+# Which frontend addresses may call this API.
+# On the host, set CORS_ORIGINS to a comma-separated list, e.g.  https://myapp.com,https://preview.example.dev
+# Any localhost / 127.0.0.1 port is always allowed, so local development just works.
+_origins = [o.strip().rstrip("/") for o in (os.getenv("CORS_ORIGINS") or "").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"],  # lets the frontend read the download filename
+)
 
 
 def require_key(x_api_key: str | None = Header(default=None)):
@@ -46,72 +56,8 @@ def _run(fn, *args, **kwargs):
 
 
 # ------------------------------------------------------------------ request shapes
-class BusinessInfo(BaseModel):
-    our_name: str
-    our_title: str
-    our_email: str
-    our_phone: str
-
-
-class OfferingInfo(BaseModel):
-    label: str
-    description: str
-
-
-class SectorInfo(BaseModel):
-    label: str
-    query: str
-    priority: float
-    fit: dict[str, float]
-
-
-class WeightsInfo(BaseModel):
-    offering_fit: float
-    sector_priority: float
-    size: float
-    footprint: float
-    cluster: float
-    buying_signals: float
-
-
-class SignalSchema(BaseModel):
-    company_name: str
-    hiring: str
-    growth_signals: str
-    site_count: str
-    size_estimate: str
-    existing_provider: str
-
-
-class ContextNote(BaseModel):
-    region: str | None = None
-    sector: str | None = None
-    offering: str | None = None
-    note: str
-
-
-class OutreachTemplates(BaseModel):
-    email: str
-    proposal: str
-    followup: str
-
-
-class ProfileData(BaseModel):
-    name: str
-    country: str
-    business: BusinessInfo
-    offerings: dict[str, OfferingInfo]
-    sectors: dict[str, SectorInfo]
-    geography: dict[str, list[str]]
-    weights: WeightsInfo
-    buying_signal_keywords: list[str]
-    signal_schema: SignalSchema
-    context_notes: list[ContextNote] | None = None
-    outreach: OutreachTemplates
-
-
 class SearchRequest(BaseModel):
-    profile: ProfileData
+    profile: str | dict[str, Any]  # a server profile id, or a full profile object
     region: str
     city: str
     sector: str
@@ -119,14 +65,14 @@ class SearchRequest(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
-    profile: ProfileData
+    profile: str | dict[str, Any]  # a server profile id, or a full profile object
     url: str
     sector: str
     region: str
     city: str
     name: str | None = None
     review_count: int | None = None
-    backend: str | None = None
+    backend: str | None = None  # "openrouter", "ollama" or "claude"; blank = server default
 
 
 class LeadIn(BaseModel):
@@ -137,11 +83,11 @@ class LeadIn(BaseModel):
 
 
 class OutreachRequest(BaseModel):
-    profile: ProfileData
+    profile: str | dict[str, Any]  # a server profile id, or a full profile object
     kind: Literal["email", "proposal", "followup"]
     offering: str
     lead: LeadIn
-    business: dict[str, str] | None = None
+    business: dict[str, str] | None = None  # optional overrides: our_name, our_title, our_email, our_phone
 
 
 class ExportRequest(BaseModel):
@@ -162,20 +108,30 @@ def backends():
     return {"backends": available_backends()}
 
 
+@app.get("/profiles", dependencies=[Depends(require_key)])
+def profiles():
+    return {"profiles": list_profiles()}
+
+
+@app.get("/profiles/{name}", dependencies=[Depends(require_key)])
+def profile_detail(name: str):
+    return _run(service.public_profile, name)
+
+
 @app.post("/search", dependencies=[Depends(require_key)])
 def search(req: SearchRequest):
-    return _run(service.search_leads, req.profile.model_dump(), req.region, req.city, req.sector, req.max_results)
+    return _run(service.search_leads, req.profile, req.region, req.city, req.sector, req.max_results)
 
 
 @app.post("/analyze", dependencies=[Depends(require_key)])
 def analyze(req: AnalyzeRequest):
-    return _run(service.analyze_url, req.profile.model_dump(), req.url, req.sector, req.region, req.city,
+    return _run(service.analyze_url, req.profile, req.url, req.sector, req.region, req.city,
                 req.name, req.review_count, req.backend)
 
 
 @app.post("/outreach", dependencies=[Depends(require_key)])
 def outreach(req: OutreachRequest):
-    text = _run(service.make_outreach, req.profile.model_dump(), req.kind, req.offering, req.lead.model_dump(), req.business)
+    text = _run(service.make_outreach, req.profile, req.kind, req.offering, req.lead.model_dump(), req.business)
     return {"kind": req.kind, "text": text}
 
 
