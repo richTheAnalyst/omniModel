@@ -10,6 +10,30 @@ MAX_PROFILE_CHARS = 300_000   # whole profile, as JSON
 MAX_TEMPLATE_CHARS = 5_000    # each outreach template
 
 
+def profile_path(name: str) -> Path:
+    """Resolve a profile id to its on-disk YAML path, refusing path traversal.
+
+    A profile id is a simple file stem such as ``simba_gate``: no path
+    separators, no leading dots (so ``.hidden`` is rejected), and the
+    resolved path must stay inside ``profiles/``.
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("Profile name must be a non-empty string.")
+    if "/" in name or "\\" in name or name in (".", "..") or name.startswith("."):
+        raise ValueError(f"Invalid profile name: {name!r}.")
+
+    base = PROFILE_DIR.resolve()
+    candidate = (PROFILE_DIR / name).resolve()
+
+    # Guard against any input that escapes the profiles directory.
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        raise ValueError(f"Invalid profile name: {name!r}.")
+
+    return candidate.with_suffix(".yaml")
+
+
 def list_profiles():
     return sorted(p.stem for p in PROFILE_DIR.glob("*.yaml"))
 
@@ -72,7 +96,11 @@ def normalize_profile(data):
 
 
 def load_profile(stem):
-    data = yaml.safe_load((PROFILE_DIR / f"{stem}.yaml").read_text(encoding="utf-8"))
+    try:
+        path = profile_path(stem)
+    except ValueError as exc:
+        raise ValueError(f"Profile '{stem}': {exc}")
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
     try:
         return normalize_profile(data)
     except ValueError as exc:
