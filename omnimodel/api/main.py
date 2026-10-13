@@ -73,6 +73,13 @@ class AnalyzeRequest(BaseModel):
     name: str | None = None
     review_count: int | None = None
     backend: str | None = None  # "openrouter", "ollama" or "claude"; blank = server default
+    use_ai_fit: bool = True  # ask the model to rate each service for this company (adds a few seconds)
+
+
+class SuggestFitRequest(BaseModel):
+    profile: str | dict[str, Any]
+    backend: str | None = None
+    sectors: list[str] | None = None  # limit to some industry keys; blank = all
 
 
 class LeadIn(BaseModel):
@@ -126,7 +133,12 @@ def search(req: SearchRequest):
 @app.post("/analyze", dependencies=[Depends(require_key)])
 def analyze(req: AnalyzeRequest):
     return _run(service.analyze_url, req.profile, req.url, req.sector, req.region, req.city,
-                req.name, req.review_count, req.backend)
+                req.name, req.review_count, req.backend, req.use_ai_fit)
+
+
+@app.post("/suggest-fit", dependencies=[Depends(require_key)])
+def suggest_fit(req: SuggestFitRequest):
+    return _run(service.suggest_fit, req.profile, req.backend, req.sectors)
 
 
 @app.post("/outreach", dependencies=[Depends(require_key)])

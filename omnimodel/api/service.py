@@ -7,12 +7,14 @@ import sys
 import textwrap
 from functools import lru_cache
 from urllib.parse import urlparse
+from typing import Any
 
 from omnimodel.export import export_docx, export_pdf, export_txt
 from omnimodel.extraction.factory import available_backends, get_extractor
 from omnimodel.places.google_places import search_by_location
 from omnimodel.profile_loader import list_profiles, load_profile, normalize_profile
 from omnimodel.scraping.playwright_scraper import fetch_pages
+from omnimodel.scoring.ai_fit import suggest_company_fit, suggest_profile_fit
 from omnimodel.scoring.profile_scoring import best_offering, lead_from_signals, score_lead
 from omnimodel.templates.profile_templates import render
 
@@ -52,10 +54,16 @@ def public_profile(name: str) -> dict:
 
 
 # ---------------------------------------------------------------- scoring helper
-def _scored(P: dict, lead: dict, signals: dict | None, cluster_size: int) -> dict:
-    scores = score_lead(lead_from_signals(signals, lead["sector"], cluster_size, lead, P), P)
+def _scored(P: dict, lead: dict, signals: dict | None, cluster_size: int, ai_fit: dict | None = None) -> dict:
+    inputs: dict[str, Any] = dict(lead_from_signals(signals, lead["sector"], cluster_size, lead, P))
+    if ai_fit:
+        inputs["ai_fit"] = {k: x.get("score", 0) 
+            for k, x in ai_fit.items()
+            if isinstance(x, dict)}
+            
+    scores = score_lead(inputs, P)
     best = best_offering(scores)
-    return {"scores": {k: {"label": P["offerings"][k]["label"], **v} for k, v in scores.items()}, "best_offering": best}
+    return {"scores": {k: {"label": P["offerings"][k]["label"], **x} for k, x in scores.items()}, "best_offering": best}
 
 
 # ---------------------------------------------------------------- search
@@ -114,7 +122,8 @@ def _scrape(urls: list[str]) -> dict[str, str]:
 
 
 def analyze_url(profile, url: str, sector: str, region: str, city: str,
-                name: str | None = None, review_count: int | None = None, backend: str | None = None) -> dict:
+                name: str | None = None, review_count: int | None = None, backend: str | None = None,
+                use_ai_fit: bool = True) -> dict:
     P = get_profile(profile)
     if sector not in P["sectors"]:
         raise BadInput(f"Unknown sector '{sector}' for this profile.")
@@ -129,10 +138,29 @@ def analyze_url(profile, url: str, sector: str, region: str, city: str,
     except Exception as exc:
         raise Upstream(f"Signal extraction failed: {exc}")
     lead = dict(name=name, website=url, region=region, city=city, sector=sector, review_count=review_count)
-    out = {"url": url, "signals": signals, **_scored(P, lead, signals, 0)}
+    ai_fit, notes = None, []
+    if use_ai_fit:
+        try:
+            ai_fit = suggest_company_fit(P, lead, signals, text, backend)
+        except Exception as exc:  # never fail the whole analysis because of the AI fit
+            notes.append(f"AI fit was skipped: {exc}")
+    out = {"url": url, "signals": signals, **_scored(P, lead, signals, 0, ai_fit),
+           "ai_fit_used": bool(ai_fit), "fit_reasons": {k: x["reason"] for k, x in (ai_fit or {}).items()}}
     if "_raw" in signals:
-        out["warning"] = "The model did not return valid JSON, so no signals were used."
+        notes.append("The model did not return valid JSON for the signals, so none were used.")
+    if notes:
+        out["warning"] = " ".join(notes)
     return out
+
+
+def suggest_fit(profile, backend: str | None = None, sectors: list[str] | None = None) -> dict:
+    P = get_profile(profile)
+    if backend and backend not in available_backends():
+        raise BadInput(f"Backend '{backend}' is not configured. Available: {', '.join(available_backends())}")
+    try:
+        return suggest_profile_fit(P, backend, sectors)
+    except Exception as exc:
+        raise Upstream(f"AI fit suggestion failed: {exc}")
 
 
 # ---------------------------------------------------------------- outreach and export
