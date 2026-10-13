@@ -5,13 +5,14 @@ import asyncio
 import ipaddress
 import sys
 import textwrap
+from typing import Any
 from functools import lru_cache
 from urllib.parse import urlparse
-from typing import Any
 
 from omnimodel.export import export_docx, export_pdf, export_txt
 from omnimodel.extraction.factory import available_backends, get_extractor
 from omnimodel.places.google_places import search_by_location
+from omnimodel.ownership import classify, refine
 from omnimodel.profile_loader import list_profiles, load_profile, normalize_profile
 from omnimodel.scraping.playwright_scraper import fetch_pages
 from omnimodel.scoring.ai_fit import suggest_company_fit, suggest_profile_fit
@@ -54,17 +55,43 @@ def public_profile(name: str) -> dict:
 
 
 # ---------------------------------------------------------------- scoring helper
-def _scored(P: dict, lead: dict, signals: dict | None, cluster_size: int, ai_fit: dict | None = None) -> dict:
-    inputs: dict[str, Any] = dict(lead_from_signals(signals, lead["sector"], cluster_size, lead, P))
+def _scored(
+    P: dict[str, Any],
+    lead: dict[str, Any],
+    signals: dict[str, Any] | None,
+    cluster_size: int,
+    ai_fit: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    inputs: dict[str, Any] = dict(
+        lead_from_signals(
+            signals,
+            lead["sector"],
+            cluster_size,
+            lead,
+            P,
+        )
+    )
+
     if ai_fit:
-        inputs["ai_fit"] = {k: x.get("score", 0) 
-            for k, x in ai_fit.items()
-            if isinstance(x, dict)}
-            
+        inputs["ai_fit"] = {
+            key: value.get("score", 0)
+            for key, value in ai_fit.items()
+            if isinstance(value, dict)
+        }
+
     scores = score_lead(inputs, P)
     best = best_offering(scores)
-    return {"scores": {k: {"label": P["offerings"][k]["label"], **x} for k, x in scores.items()}, "best_offering": best}
 
+    return {
+        "scores": {
+            key: {
+                "label": P["offerings"][key]["label"],
+                **value,
+            }
+            for key, value in scores.items()
+        },
+        "best_offering": best,
+    }
 
 # ---------------------------------------------------------------- search
 @lru_cache(maxsize=128)  # repeat searches are free; the cache clears when the server restarts
@@ -90,8 +117,9 @@ def search_leads(profile, region: str, city: str, sector: str, max_results: int)
     for p in raw:
         lead = dict(id=p.get("id"), name=(p.get("displayName") or {}).get("text"), address=p.get("formattedAddress"),
                     phone=p.get("nationalPhoneNumber"), website=p.get("websiteUri"), rating=p.get("rating"),
-                    review_count=p.get("userRatingCount"), region=region, city=city, sector=sector)
-        leads.append({**lead, **_scored(P, lead, None, len(raw) - 1)})
+                    review_count=p.get("userRatingCount"), region=region, city=city, sector=sector,
+                    types=(p.get("types") or [])[:6])
+        leads.append({**lead, **_scored(P, lead, None, len(raw) - 1), **classify(lead["name"], lead["website"], lead["types"])})
     leads.sort(key=lambda x: x["scores"][x["best_offering"]]["score"], reverse=True)
     return {"profile": profile if isinstance(profile, str) else P["name"], "count": len(leads), "leads": leads}
 
@@ -123,7 +151,7 @@ def _scrape(urls: list[str]) -> dict[str, str]:
 
 def analyze_url(profile, url: str, sector: str, region: str, city: str,
                 name: str | None = None, review_count: int | None = None, backend: str | None = None,
-                use_ai_fit: bool = True) -> dict:
+                use_ai_fit: bool = True, types: list[str] | None = None) -> dict:
     P = get_profile(profile)
     if sector not in P["sectors"]:
         raise BadInput(f"Unknown sector '{sector}' for this profile.")
@@ -138,14 +166,16 @@ def analyze_url(profile, url: str, sector: str, region: str, city: str,
     except Exception as exc:
         raise Upstream(f"Signal extraction failed: {exc}")
     lead = dict(name=name, website=url, region=region, city=city, sector=sector, review_count=review_count)
-    ai_fit, notes = None, []
+    ai_fit, ai_owner, notes = None, None, []
     if use_ai_fit:
         try:
-            ai_fit = suggest_company_fit(P, lead, signals, text, backend)
-        except Exception as exc:  # never fail the whole analysis because of the AI fit
+            ai = suggest_company_fit(P, lead, signals, text, backend)
+            ai_fit, ai_owner = ai["fit"] or None, ai["ownership"]
+        except Exception as exc:  # never fail the whole analysis because of the AI step
             notes.append(f"AI fit was skipped: {exc}")
     out = {"url": url, "signals": signals, **_scored(P, lead, signals, 0, ai_fit),
-           "ai_fit_used": bool(ai_fit), "fit_reasons": {k: x["reason"] for k, x in (ai_fit or {}).items()}}
+           "ai_fit_used": bool(ai_fit), "fit_reasons": {k: x["reason"] for k, x in (ai_fit or {}).items()},
+           **refine(classify(name, url, types), ai_owner)}
     if "_raw" in signals:
         notes.append("The model did not return valid JSON for the signals, so none were used.")
     if notes:

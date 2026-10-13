@@ -1,12 +1,12 @@
 """AI-suggested fit values.
 
-Rates how well each service suits an industry or a company.
+Estimates how well each service suits an industry or a specific company.
 
-Uses the existing extractor (OpenRouter, Ollama or Claude) with a custom
-schema, so extraction files do not need to change.
+Uses the existing extraction backend (OpenRouter, Ollama or Claude)
+with custom schemas, so the extraction files do not need to change.
 
-The AI only supplies the fit input. The score formula remains in
-profile_scoring.py, and failures fall back to the rule-based system.
+The AI only supplies fit and ownership inputs. Final scoring remains
+inside profile_scoring.py.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ GUARD = (
 
 
 def _num(value: Any) -> float | None:
-    """Convert a model value to a float from 0 to 1."""
+    """Convert a model value to a float between 0 and 1."""
 
     try:
         number = float(value)
@@ -51,11 +51,17 @@ def _num(value: Any) -> float | None:
 def _offerings(
     profile: dict[str, Any],
 ) -> list[tuple[str, Any]]:
-    """Return the profile's offerings, limited to MAX_OFFERINGS."""
+    """Return profile offerings, limited to MAX_OFFERINGS."""
 
-    offerings = profile.get("offerings", {})
+    offerings = profile.get(
+        "offerings",
+        {},
+    )
 
-    if not isinstance(offerings, dict):
+    if not isinstance(
+        offerings,
+        dict,
+    ):
         return []
 
     return list(
@@ -66,12 +72,17 @@ def _offerings(
 def _services_block(
     profile: dict[str, Any],
 ) -> str:
-    """Create a human-readable service list for the AI prompt."""
+    """Create the services section used in AI prompts."""
 
     lines: list[str] = []
 
-    for key, value in _offerings(profile):
-        if not isinstance(value, dict):
+    for key, value in _offerings(
+        profile
+    ):
+        if not isinstance(
+            value,
+            dict,
+        ):
             continue
 
         label = str(
@@ -82,7 +93,9 @@ def _services_block(
         )
 
         description = str(
-            value.get("description")
+            value.get(
+                "description"
+            )
             or label
         )[:300]
 
@@ -90,7 +103,9 @@ def _services_block(
             f"- {key}: {label} ({description})"
         )
 
-    return "\n".join(lines)
+    return "\n".join(
+        lines
+    )
 
 
 def suggest_profile_fit(
@@ -98,7 +113,20 @@ def suggest_profile_fit(
     backend: str | None = None,
     sector_keys: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Rate every service against every requested industry."""
+    """Rate every service against every requested industry.
+
+    Returns:
+
+    {
+        "fit": {
+            "sector_key": {
+                "offering_key": 0.0
+            }
+        },
+        "filled": 0,
+        "warnings": []
+    }
+    """
 
     extractor = get_extractor(
         backend
@@ -117,11 +145,12 @@ def suggest_profile_fit(
             "profile sectors must be a dictionary."
         )
 
-    requested_keys = (
-        sector_keys
-        if sector_keys is not None
-        else list(sectors.keys())
-    )
+    if sector_keys is None:
+        requested_keys = list(
+            sectors.keys()
+        )
+    else:
+        requested_keys = sector_keys
 
     keys = [
         key
@@ -129,7 +158,11 @@ def suggest_profile_fit(
         if key in sectors
     ]
 
-    fit: dict[str, dict[str, float]] = {}
+    fit: dict[
+        str,
+        dict[str, float],
+    ] = {}
+
     warnings: list[str] = []
 
     for index in range(
@@ -153,9 +186,11 @@ def suggest_profile_fit(
                 sector_data,
                 dict,
             ):
-                label = sector_data.get(
-                    "label",
-                    sector_key,
+                label = str(
+                    sector_data.get(
+                        "label",
+                        sector_key,
+                    )
                 )
             else:
                 label = sector_key
@@ -178,35 +213,36 @@ def suggest_profile_fit(
             )
         )
 
-        text = (
+        prompt = (
             f"{GUARD}\n\n"
             f"A business called '{profile_name}' "
-            f"({country}) sells services to other businesses.\n"
-            f"Services (key: label (description)):\n"
+            f"({country}) sells services to other businesses.\n\n"
+            "Services (key: label (description)):\n"
             f"{_services_block(profile)}\n\n"
-            f"Industries (key: label):\n"
+            "Industries (key: label):\n"
             + "\n".join(
                 industry_lines
             )
             + "\n\n"
             "For EVERY industry and EVERY service, rate from 0 to 1 "
             "how much a typical company in that industry needs that service. "
-            "(0 = no need, 0.5 = sometimes, 1 = ideal customer). "
-            "Use the full range; most pairs should not be high. "
+            "0 means no need, 0.5 means sometimes useful, and 1 means "
+            "an ideal customer for that service. "
+            "Use the full range. Most pairs should not receive high scores. "
             "Use the keys exactly as given."
         )
 
         schema: dict[str, str] = {
             "fit": (
-                "object: one entry per industry key, "
-                "each an object mapping every service key "
-                "to a number from 0 to 1"
+                "object: one entry per industry key, each containing "
+                "an object that maps every service key to a number "
+                "from 0 to 1"
             )
         }
 
         try:
             raw_result: Any = extractor(
-                text,
+                prompt,
                 signal_schema=schema,
             )
 
@@ -220,31 +256,28 @@ def suggest_profile_fit(
             else:
                 result = {}
 
-            got: Any = result.get(
+            fit_result: Any = result.get(
                 "fit"
             )
 
         except Exception as exc:
             warnings.append(
-                f"batch "
-                f"{index // BATCH + 1} "
-                f"failed: {exc}"
+                f"batch {index // BATCH + 1} failed: {exc}"
             )
             continue
 
         if not isinstance(
-            got,
+            fit_result,
             dict,
         ):
             warnings.append(
-                f"batch "
-                f"{index // BATCH + 1}: "
+                f"batch {index // BATCH + 1}: "
                 "the model did not return usable fit values."
             )
             continue
 
         for sector_key in batch:
-            row: Any = got.get(
+            row: Any = fit_result.get(
                 sector_key
             )
 
@@ -254,7 +287,10 @@ def suggest_profile_fit(
             ):
                 continue
 
-            clean: dict[str, float] = {}
+            clean: dict[
+                str,
+                float,
+            ] = {}
 
             for offering_key, _ in _offerings(
                 profile
@@ -275,12 +311,14 @@ def suggest_profile_fit(
                     sector_key
                 ] = clean
 
+    filled = sum(
+        len(values)
+        for values in fit.values()
+    )
+
     return {
         "fit": fit,
-        "filled": sum(
-            len(values)
-            for values in fit.values()
-        ),
+        "filled": filled,
         "warnings": warnings,
     }
 
@@ -291,8 +329,24 @@ def suggest_company_fit(
     signals: dict[str, Any] | None,
     page_text: str,
     backend: str | None = None,
-) -> dict[str, dict[str, Any]]:
-    """Rate each service for one specific company."""
+) -> dict[str, Any]:
+    """Rate each service and estimate ownership for one company.
+
+    Returns:
+
+    {
+        "fit": {
+            "offering_key": {
+                "score": 0.0,
+                "reason": "..."
+            }
+        },
+        "ownership": {
+            "value": "government" | "non_government",
+            "reason": "..."
+        } | None
+    }
+    """
 
     extractor = get_extractor(
         backend
@@ -317,7 +371,7 @@ def suggest_company_fit(
         sectors,
         dict,
     ):
-        sector_data = sectors.get(
+        sector_data: Any = sectors.get(
             sector_key,
             {},
         )
@@ -334,7 +388,9 @@ def suggest_company_fit(
             )
 
     company_name = str(
-        lead.get("name")
+        lead.get(
+            "name"
+        )
         or "unknown"
     )
 
@@ -360,25 +416,37 @@ def suggest_company_fit(
         )
     )
 
-    text = (
+    signals_json = json.dumps(
+        signals or {},
+        default=str,
+    )[:1500]
+
+    trusted_page_text = (
+        page_text or ""
+    )[:6000]
+
+    prompt = (
         f"{GUARD}\n\n"
-        f"A business called '{profile_name}' "
-        "wants to sell to this company.\n"
-        f"Company: {company_name}. "
-        f"Industry: {sector_label}. "
-        f"Location: {city}, {country}.\n"
-        "Facts already extracted: "
-        f"{json.dumps(signals or {}, default=str)[:1500]}\n\n"
+        f"A business called '{profile_name}' wants to sell to this company.\n"
+        f"Company: {company_name}.\n"
+        f"Industry: {sector_label}.\n"
+        f"Location: {city}, {country}.\n\n"
+        "Facts already extracted:\n"
+        f"{signals_json}\n\n"
         "Services (key: label (description)):\n"
         f"{_services_block(profile)}\n\n"
-        "Rate from 0 to 1 how well EACH service suits THIS company "
-        "(0 = poor fit, 1 = ideal). "
-        "Use the full range and give a one-sentence reason "
-        "(at most 20 words) for each, citing something specific "
-        "from the data.\n\n"
-        f"<data>\n"
-        f"{(page_text or '')[:6000]}"
-        f"\n</data>"
+        "Task 1:\n"
+        "Rate from 0 to 1 how well EACH service suits THIS company. "
+        "0 means poor fit and 1 means ideal fit. "
+        "Use the full range. "
+        "Give a one-sentence reason of at most 20 words for each service, "
+        "citing something specific from the supplied data.\n\n"
+        "Task 2:\n"
+        "Determine whether this organisation is government, "
+        "non-government, or unclear.\n\n"
+        "<data>\n"
+        f"{trusted_page_text}\n"
+        "</data>"
     )
 
     schema: dict[str, str] = {
@@ -386,35 +454,52 @@ def suggest_company_fit(
             "object mapping each service key to an object "
             "{score: number from 0 to 1, "
             "reason: one short sentence}"
-        )
+        ),
+        "ownership": (
+            "object {value: government, non_government or unclear, "
+            "reason: one short sentence}. "
+            "government = owned or run by a national, regional or "
+            "local government, including ministries, agencies, "
+            "local assemblies, public universities, public hospitals "
+            "and state-owned companies. "
+            "non_government = privately owned organisations, NGOs, "
+            "charities and faith organisations. "
+            "Use unclear when the supplied data does not establish ownership."
+        ),
     }
 
     raw_result: Any = extractor(
-        text,
+        prompt,
         signal_schema=schema,
     )
 
-    result: dict[str, Any]
+    raw: dict[str, Any]
 
     if isinstance(
         raw_result,
         dict,
     ):
-        result = raw_result
+        raw = raw_result
     else:
-        result = {}
+        raw = {}
 
-    got: Any = result.get(
+    # ------------------------------------------------------------------
+    # Fit results
+    # ------------------------------------------------------------------
+
+    fit_result: Any = raw.get(
         "fit"
     )
 
-    if not isinstance(
-        got,
+    fit_data: dict[str, Any]
+
+    if isinstance(
+        fit_result,
         dict,
     ):
-        raise ValueError(
-            "the model did not return usable fit values."
-        )
+        fit_data = fit_result
+    else:
+        fit_data = {}
 
     output: dict[
         str,
@@ -424,7 +509,7 @@ def suggest_company_fit(
     for offering_key, _ in _offerings(
         profile
     ):
-        item: Any = got.get(
+        item: Any = fit_data.get(
             offering_key
         )
 
@@ -457,9 +542,55 @@ def suggest_company_fit(
             "reason": reason,
         }
 
-    if not output:
+    # ------------------------------------------------------------------
+    # Ownership result
+    # ------------------------------------------------------------------
+
+    ownership_result: Any = raw.get(
+        "ownership"
+    )
+
+    ownership: dict[
+        str,
+        str,
+    ] | None = None
+
+    if isinstance(
+        ownership_result,
+        dict,
+    ):
+        ownership_value = str(
+            ownership_result.get(
+                "value",
+                "",
+            )
+            or ""
+        ).strip().lower()
+
+        if ownership_value in (
+            "government",
+            "non_government",
+        ):
+            ownership = {
+                "value": ownership_value,
+                "reason": str(
+                    ownership_result.get(
+                        "reason"
+                    )
+                    or ""
+                )[:200],
+            }
+
+    # "unclear" deliberately becomes None.
+    # This lets the deterministic ownership classifier remain authoritative
+    # when the AI cannot determine ownership.
+
+    if not output and ownership is None:
         raise ValueError(
-            "no usable fit values for this company."
+            "the model did not return usable fit or ownership values."
         )
 
-    return output
+    return {
+        "fit": output,
+        "ownership": ownership,
+    }

@@ -74,6 +74,7 @@ class AnalyzeRequest(BaseModel):
     review_count: int | None = None
     backend: str | None = None  # "openrouter", "ollama" or "claude"; blank = server default
     use_ai_fit: bool = True  # ask the model to rate each service for this company (adds a few seconds)
+    types: list[str] | None = None  # the lead's Google types from /search; improves the government check
 
 
 class SuggestFitRequest(BaseModel):
@@ -133,7 +134,7 @@ def search(req: SearchRequest):
 @app.post("/analyze", dependencies=[Depends(require_key)])
 def analyze(req: AnalyzeRequest):
     return _run(service.analyze_url, req.profile, req.url, req.sector, req.region, req.city,
-                req.name, req.review_count, req.backend, req.use_ai_fit)
+                req.name, req.review_count, req.backend, req.use_ai_fit, req.types)
 
 
 @app.post("/suggest-fit", dependencies=[Depends(require_key)])
