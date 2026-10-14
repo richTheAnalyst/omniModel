@@ -6,6 +6,9 @@ from omnimodel.profile_loader import context_notes
 
 def render(profile, kind, lead, offering, biz):
     o = profile["offerings"][offering]
+    # Fall back to the profile's own business details so a caller that omits them
+    # still produces a complete, placeholder-free document.
+    biz = {**(profile.get("business") or {}), **(biz or {})}
     values = {
         "company": lead.get("name") or "your company",
         "city": lead.get("city") or lead.get("region") or "",

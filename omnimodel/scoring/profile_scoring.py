@@ -39,4 +39,6 @@ def score_lead(lead, profile):
     return out
 
 def best_offering(scores):
+    if not scores:
+        return None
     return max(scores, key=lambda o: scores[o]["score"])
