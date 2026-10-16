@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from omnimodel.export import export_docx, export_pdf, export_txt
 from omnimodel.extraction.factory import available_backends, get_extractor
-from omnimodel.places.google_places import search_by_location
+from omnimodel.places.paged import search_all
 from omnimodel.ownership import classify, refine
 from omnimodel.profile_loader import list_profiles, load_profile, normalize_profile
 from omnimodel.scraping.playwright_scraper import fetch_pages
@@ -95,11 +95,10 @@ def _scored(
 
 # ---------------------------------------------------------------- search
 @lru_cache(maxsize=128)  # repeat searches are free; the cache clears when the server restarts
-def _places(query: str, location: str, n: int) -> tuple:
-    return tuple(search_by_location(query, location, max_results=n))
+def _places(query: str, location: str, n: int | None) -> tuple:
+    return tuple(search_all(query, location, n))   
 
-
-def search_leads(profile, region: str, city: str, sector: str, max_results: int) -> dict:
+def search_leads(profile, region: str, city: str, sector: str, max_results: int | None = None) -> dict:
     P = get_profile(profile)
     if region not in P["geography"]:
         raise BadInput(f"Unknown region '{region}' for this profile.")

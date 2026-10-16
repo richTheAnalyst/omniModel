@@ -61,7 +61,7 @@ class SearchRequest(BaseModel):
     region: str
     city: str
     sector: str
-    max_results: int = Field(10, ge=1, le=20)
+    max_results: int | None = Field(None, ge=1, le=60)  # leave out for everything Google returns (up to 60)
 
 
 class AnalyzeRequest(BaseModel):
