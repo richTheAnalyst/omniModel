@@ -62,6 +62,7 @@ class SearchRequest(BaseModel):
     city: str
     sector: str
     max_results: int | None = Field(None, ge=1, le=60)  # leave out for everything Google returns (up to 60)
+    shuffle: bool = False 
 
 
 class AnalyzeRequest(BaseModel):
@@ -128,8 +129,7 @@ def profile_detail(name: str):
 
 @app.post("/search", dependencies=[Depends(require_key)])
 def search(req: SearchRequest):
-    return _run(service.search_leads, req.profile, req.region, req.city, req.sector, req.max_results)
-
+    return _run(service.search_leads, req.profile, req.region, req.city, req.sector, req.max_results, req.shuffle)
 
 @app.post("/analyze", dependencies=[Depends(require_key)])
 def analyze(req: AnalyzeRequest):

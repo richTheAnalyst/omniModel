@@ -18,6 +18,7 @@ from omnimodel.scraping.playwright_scraper import fetch_pages
 from omnimodel.scoring.ai_fit import suggest_company_fit, suggest_profile_fit
 from omnimodel.scoring.profile_scoring import best_offering, lead_from_signals, score_lead
 from omnimodel.templates.profile_templates import render
+import random
 
 
 class NotFound(Exception):   # becomes HTTP 404
@@ -98,7 +99,7 @@ def _scored(
 def _places(query: str, location: str, n: int | None) -> tuple:
     return tuple(search_all(query, location, n))   
 
-def search_leads(profile, region: str, city: str, sector: str, max_results: int | None = None) -> dict:
+def search_leads(profile, region: str, city: str, sector: str, max_results: int | None = None, shuffle: bool = False) -> dict:
     P = get_profile(profile)
     if region not in P["geography"]:
         raise BadInput(f"Unknown region '{region}' for this profile.")
@@ -107,20 +108,29 @@ def search_leads(profile, region: str, city: str, sector: str, max_results: int 
     if not city.strip():
         raise BadInput("City is required.")
     try:
-        raw = _places(P["sectors"][sector]["query"], f"{city}, {region}, {P['country']}", max_results)
+        # with shuffle we always fetch the whole pool (cached), then pick from it at random
+        raw = _places(P["sectors"][sector]["query"], f"{city}, {region}, {P['country']}", None if shuffle else max_results)
     except RuntimeError as exc:  # e.g. GOOGLE_PLACES_API_KEY missing
         raise Upstream(str(exc))
     except Exception as exc:
         raise Upstream(f"Google Places search failed: {exc}")
+    pool_size = len(raw)
+    if shuffle:  # a new random order, and a new random subset when a limit is set, on every search
+        raw = list(raw)
+        random.shuffle(raw)
+        if max_results:
+            raw = raw[:max_results]
     leads = []
     for p in raw:
+        loc = p.get("location") or {}
         lead = dict(id=p.get("id"), name=(p.get("displayName") or {}).get("text"), address=p.get("formattedAddress"),
                     phone=p.get("nationalPhoneNumber"), website=p.get("websiteUri"), rating=p.get("rating"),
                     review_count=p.get("userRatingCount"), region=region, city=city, sector=sector,
-                    types=(p.get("types") or [])[:6])
-        leads.append({**lead, **_scored(P, lead, None, len(raw) - 1), **classify(lead["name"], lead["website"], lead["types"])})
-    leads.sort(key=lambda x: x["scores"][x["best_offering"]]["score"], reverse=True)
-    return {"profile": profile if isinstance(profile, str) else P["name"], "count": len(leads), "leads": leads}
+                    types=(p.get("types") or [])[:6], lat=loc.get("latitude"), lng=loc.get("longitude"))
+        leads.append({**lead, **_scored(P, lead, None, pool_size - 1), **classify(lead["name"], lead["website"], lead["types"])})
+    if not shuffle:
+        leads.sort(key=lambda x: x["scores"][x["best_offering"]]["score"], reverse=True)
+    return {"profile": profile if isinstance(profile, str) else P["name"], "count": len(leads), "leads": leads}    
 
 
 # ---------------------------------------------------------------- analyze a website
