@@ -28,6 +28,8 @@ api = [
     "pyyaml",
     "reportlab",
     "python-docx",
+    "psycopg[binary,pool]",
+    "PyJWT[crypto]",
 ]
 dev = [
     "pytest>=8.0.0",

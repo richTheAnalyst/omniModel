@@ -15,7 +15,8 @@ from pydantic import BaseModel, Field
 from omnimodel.extraction.factory import available_backends
 from omnimodel.profile_loader import list_profiles
 
-from . import service
+from omnimodel import accounts
+from omnimodel.api import service
 
 app = FastAPI(title="omniModel Lead API", version="0.1.0")
 
@@ -33,15 +34,21 @@ app.add_middleware(
 )
 
 
-def require_key(x_api_key: str | None = Header(default=None)):
-    """Every endpoint except /health needs the header  X-API-Key: <your API_KEY>.
-    Set API_KEY on the host (and in your local .env). If it is not set, the API refuses to work."""
+def require_key(x_api_key: str | None = Header(default=None), authorization: str | None = Header(default=None)):
+    """Access rule for every endpoint except /health: a valid sign-in token (an account) OR the shared API key (a guest).
+    An expired or bad token is treated as a guest, so then the key is required."""
+    token = accounts.bearer_token(authorization)
+    if token and accounts.enabled():
+        try:
+            accounts.verify_token(token)
+            return
+        except ValueError:
+            pass
     expected = os.getenv("API_KEY")
     if not expected:
         raise HTTPException(503, "API_KEY is not configured on the server.")
     if not x_api_key or not hmac.compare_digest(x_api_key, expected):
         raise HTTPException(401, "Missing or invalid X-API-Key header.")
-
 
 def _run(fn, *args, **kwargs):
     """Call a service function and turn its errors into proper HTTP errors."""
@@ -111,7 +118,26 @@ class ExportRequest(BaseModel):
 def health():
     return {"status": "ok"}
 
+@app.get("/me")
+def me(authorization: str | None = Header(default=None)):
+    """Who is signed in? Creates the user and their business workspace on first sign-in. Guests get a 401."""
+    if not accounts.enabled():
+        raise HTTPException(503, "Accounts are not enabled on this server.")
+    token = accounts.bearer_token(authorization)
+    if not token:
+        raise HTTPException(401, "Sign in required.")
+    try:
+        claims = accounts.verify_token(token)
+    except ValueError as exc:
+        raise HTTPException(401, str(exc))
+    try:
+        return accounts.load_account(claims)
+    except RuntimeError as exc:                     # DATABASE_URL missing
+        raise HTTPException(503, str(exc))
+    except Exception as exc:                        # database unreachable, schema not created yet, ...
+        raise HTTPException(503, f"The account database is not available: {exc.__class__.__name__}")
 
+    
 @app.get("/backends", dependencies=[Depends(require_key)])
 def backends():
     return {"backends": available_backends()}
