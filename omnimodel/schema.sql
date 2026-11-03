@@ -16,9 +16,14 @@ create table users (
   auth_subject  text not null unique,           -- the user id given by the sign-in provider (never store passwords here)
   email         text,
   display_name  text,
+  password_hash text,                           -- our own sign-in only: a salted scrypt hash, never the password itself
+  token_version int not null default 0,         -- raised by "sign out everywhere"; older login tokens then stop working
+  failed_logins int not null default 0,         -- wrong passwords in a row
+  locked_until  timestamptz,                    -- set after too many wrong passwords
   created_at    timestamptz not null default now(),
   last_seen_at  timestamptz
 );
+create unique index users_local_email_uq on users (lower(email)) where password_hash is not null;   -- one account per email
  
 create table workspace_members (                -- officers of a business share one dashboard
   workspace_id  uuid not null references workspaces(id) on delete cascade,

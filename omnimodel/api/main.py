@@ -17,9 +17,11 @@ from omnimodel.profile_loader import list_profiles
 
 from omnimodel import accounts
 from omnimodel.api import service
+from omnimodel.api.auth_routes import router as auth_router
 from omnimodel.api.tracking_routes import router as tracking_router
 
 app = FastAPI(title="omniModel Lead API", version="0.1.0")
+app.include_router(auth_router)       # sign up and sign in: /auth/register, /auth/login, /auth/logout-all
 app.include_router(tracking_router)   # saved leads and tracking: /leads, /pipeline (signed-in users only)
 
 # Which frontend addresses may call this API.
@@ -134,6 +136,8 @@ def me(authorization: str | None = Header(default=None)):
         raise HTTPException(401, str(exc))
     try:
         return accounts.load_account(claims)
+    except accounts.SessionExpired as exc:          # user deleted, or signed out everywhere
+        raise HTTPException(401, str(exc))
     except RuntimeError as exc:                     # DATABASE_URL missing
         raise HTTPException(503, str(exc))
     except Exception as exc:                        # database unreachable, schema not created yet, ...

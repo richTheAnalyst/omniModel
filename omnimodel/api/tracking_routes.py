@@ -29,6 +29,8 @@ def _run(fn, *args, **kwargs):
     """Calls a tracking function and turns its errors into proper HTTP errors."""
     try:
         return fn(*args, **kwargs)
+    except accounts.SessionExpired as exc:            # signed out everywhere, or the user no longer exists
+        raise HTTPException(401, str(exc))
     except tracking.NotFound as exc:
         raise HTTPException(404, str(exc))
     except tracking.BadInput as exc:

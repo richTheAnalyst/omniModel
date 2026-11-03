@@ -224,7 +224,7 @@ def _add_event(conn, ctx: Ctx, lead_id: str, type_: str, detail: dict, occurred_
 
 
 # ---------------------------------------------------------------- who is asking
-_MEMBERSHIP_SQL = """select u.id as user_id, m.workspace_id, m.role
+_MEMBERSHIP_SQL = """select u.id as user_id, u.token_version, m.workspace_id, m.role
                      from users u join workspace_members m on m.user_id = u.id
                      where u.auth_subject = %s order by m.created_at"""
 
@@ -242,11 +242,12 @@ def resolve_member(claims: dict, workspace_id: str | None = None) -> Ctx:
     with db.connection() as conn:
         rows = conn.execute(_MEMBERSHIP_SQL, (sub,)).fetchall()
     if not rows:
-        accounts.load_account(claims)
+        accounts.load_account(claims)   # for our own tokens this refuses a user that no longer exists
         with db.connection() as conn:
             rows = conn.execute(_MEMBERSHIP_SQL, (sub,)).fetchall()
     if not rows:
         raise Forbidden("This account has no business workspace.")
+    accounts.check_session(claims, rows[0]["token_version"])   # signed out everywhere? then this token is dead
     if wanted is None:
         row = rows[0]
     else:

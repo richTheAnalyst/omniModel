@@ -280,6 +280,22 @@ Returns raw bytes, not JSON:
 
 Always carries `Content-Disposition: attachment; filename="<safe>.<format>"`.
 
+### Sign up and sign in
+
+Our own accounts, kept in your Neon database. Needs `AUTH_SECRET` (32+ random characters) and `DATABASE_URL`, and
+`omnimodel/schema.sql` applied (or `omnimodel/migrations/002_local_auth.sql` on an older database). These endpoints need no
+API key. Send the returned `token` on later requests as `Authorization: Bearer <token>`; it lasts 7 days.
+
+| Endpoint | What it does |
+|---|---|
+| `POST /auth/register` | `{name, email, password}` (password 8-128 characters). Creates the account and the person's business workspace. Returns `{token, expires_at, me}`. `409` if the email is already registered (any letter case). |
+| `POST /auth/login` | `{email, password}`. Returns `{token, expires_at, me}`. `401` "Incorrect email or password." for a wrong password or an unknown email (the same answer for both). `429` after 5 wrong passwords in a row: the account is locked for 15 minutes. |
+| `POST /auth/logout-all` | Needs a token. Cancels every token this user has, on every device. |
+| `GET /me` | Who the token belongs to. `401` if the token is missing, invalid, expired, or was cancelled. |
+
+Passwords are stored only as salted scrypt hashes. Not included yet: email verification, password reset by email, and a
+limit on how many accounts one person can create.
+
 ### Saved leads and tracking (signed-in users only)
 
 These need `Authorization: Bearer <token>` from a signed-in account. A guest (only the shared `X-API-Key`) gets `401`.
