@@ -27,7 +27,7 @@ dropdowns from it rather than hardcoding keys.
 
 ## 1. Authentication
 
-**There is none.** Every endpoint is open to anyone who can reach the port. Do not expose this
+**Guest access uses a shared key; accounts use a sign-in token.** (This section was written before accounts existed; the endpoints in the table below under "Saved leads and tracking" always need a token.) Without `API_KEY` set, the endpoints other than /health and /me refuse every request. Do not expose this
 service publicly as-is — put auth in front of it (nginx, an API gateway, or a reverse proxy
 that terminates a key). Anyone who reaches it can spend your Google Places and LLM credits.
 
@@ -279,6 +279,24 @@ Returns raw bytes, not JSON:
 | `txt` | `text/plain; charset=utf-8` | UTF-8 text |
 
 Always carries `Content-Disposition: attachment; filename="<safe>.<format>"`.
+
+### Saved leads and tracking (signed-in users only)
+
+These need `Authorization: Bearer <token>` from a signed-in account. A guest (only the shared `X-API-Key`) gets `401`.
+Everything is scoped to the user's business (workspace), so one business never sees another's leads; a lead that belongs
+to someone else is `404`. Send `X-Workspace-Id` to work in another business the user belongs to (`403` if not a member).
+Needs `DATABASE_URL` and `AUTH_JWKS_URL`, and `omnimodel/schema.sql` applied (see `omnimodel/migrations/` for old databases).
+
+| Endpoint | What it does |
+|---|---|
+| `GET /leads` | Saved leads, most recently changed first. Query: `status`, `sector`, `q` (name/city/address), `due=true` (follow-up due), `limit` (1-500), `offset`. Returns `{total, limit, offset, leads}`. |
+| `POST /leads` | Save a lead (`place_id` is the Google place id). Saving the same company again refreshes its details but never touches status, history or counters. Returns `{created, lead}`. |
+| `GET /leads/{id}` | One lead with `events` (newest first, up to 200) and its `outcome`. |
+| `PATCH /leads/{id}` | Change `status`, `next_follow_up_at` (`null` clears it) or `do_not_contact`. `won` and `lost` are refused here: use the outcome endpoint. Moving a won/lost lead to another status reopens it and removes its old outcome. |
+| `POST /leads/{id}/events` | Log `call_attempt`, `call_answered`, `email_sent`, `whatsapp_sent`, `visit`, `meeting`, `proposal_sent` or `note` (with optional `note`, `occurred_at`, `follow_up_at`). Contact events raise `contact_attempts`, set `last_contacted_at`, and move a lead forward (new to contacted, to meeting, to proposal), never backward and never a closed lead. `409` if the lead is marked do not contact (notes are still allowed). |
+| `PUT /leads/{id}/outcome` | Close as `won` or `lost`, with `deal_value`, `currency`, `offerings_sold`, `contract_months`, `lost_reason`, `competitor_name`, `notes`. Safe to call again to correct it. |
+| `DELETE /leads/{id}` | Remove a lead and its history. Owner or admin only. |
+| `GET /pipeline` | `{counts per status, total, due, week}`: follow-ups due and the last 7 days of calls, messages, meetings and wins. |
 
 ## 4. Enums available today
 

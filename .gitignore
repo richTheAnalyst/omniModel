@@ -92,3 +92,5 @@ log/
 *.xlsx
 *.csv
 !tests/**/*.csv
+# Local database files from tools
+.pgtest/

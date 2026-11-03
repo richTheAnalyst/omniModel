@@ -1,5 +1,7 @@
 """Connection to the Neon database. Only accounts use it; guests never touch it.
-Set DATABASE_URL to your Neon *pooled* connection string (the one with -pooler in the host name)."""
+Set DATABASE_URL to your Neon *pooled* connection string (the one with -pooler in the host name).
+Never write the connection string in code: it holds the database password. Keep it in .env (which git ignores)
+or in your host's environment settings."""
 from __future__ import annotations
 
 import os
@@ -10,7 +12,7 @@ _pool = None
 
 
 def configured() -> bool:
-    return bool(os.getenv("postgresql://neondb_owner:npg_vFAxwWJ0Ems3@ep-autumn-waterfall-ba0mdyp1-pooler.c-8.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"))
+    return bool(os.getenv("DATABASE_URL"))
 
 
 def pool():

@@ -17,8 +17,10 @@ from omnimodel.profile_loader import list_profiles
 
 from omnimodel import accounts
 from omnimodel.api import service
+from omnimodel.api.tracking_routes import router as tracking_router
 
 app = FastAPI(title="omniModel Lead API", version="0.1.0")
+app.include_router(tracking_router)   # saved leads and tracking: /leads, /pipeline (signed-in users only)
 
 # Which frontend addresses may call this API.
 # On the host, set CORS_ORIGINS to a comma-separated list, e.g.  https://myapp.com,https://preview.example.dev

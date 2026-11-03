@@ -1,5 +1,3 @@
-
-Schema · SQL
 -- omniModel database schema for Neon (Postgres). Run it on a Neon BRANCH first, never straight on production.
 -- Guests never touch this database: their data stays in the browser. Everything here belongs to a signed-in user's workspace.
 -- Every table that holds business data carries workspace_id, so one business can never see another's data.
@@ -77,6 +75,7 @@ create table leads (                            -- one row per company per busin
   details_fetched_at    timestamptz,            -- when the Google details were last refreshed
   ownership             text check (ownership in ('government', 'non_government')),
   ownership_confidence  text check (ownership_confidence in ('high', 'assumed', 'ai')),
+  snapshot              jsonb,                  -- what the app showed when the lead was saved: scores, best offering, website analysis
   status                text not null default 'new'
                         check (status in ('new', 'contacted', 'meeting', 'proposal', 'won', 'lost', 'not_interested')),
   status_changed_at     timestamptz not null default now(),
@@ -242,5 +241,3 @@ create view v_conversion_by_sector as
   group by l.workspace_id, l.sector;
  
 commit;
- 
-Claude finished the response
