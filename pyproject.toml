@@ -30,6 +30,7 @@ api = [
     "python-docx",
     "psycopg[binary,pool]",
     "PyJWT[crypto]",
+    "openpyxl",
 ]
 dev = [
     "pytest>=8.0.0",

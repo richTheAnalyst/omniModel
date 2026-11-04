@@ -9,15 +9,16 @@ a guest (shared API key, no token) gets 401, because a guest has no workspace to
   POST   /leads/{id}/events     log a call, message, visit, meeting, proposal or note
   PUT    /leads/{id}/outcome    close a lead as won or lost, with details
   GET    /pipeline              counts per status, follow-ups due, this week's activity
+  POST   /exports/leads         an Excel file: all leads, one lead or one week, with history and the business profile
 
 The business to work in is the user's first one. Send `X-Workspace-Id` to pick another one they belong to."""
 from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 
-from omnimodel import accounts, tracking
+from omnimodel import accounts, lead_export, tracking
 from omnimodel.tracking import EventIn, OutcomeIn, PatchLead, SaveLead
 
 router = APIRouter(tags=["tracking"])
@@ -110,3 +111,12 @@ def set_outcome(lead_id: UUID, body: OutcomeIn, ctx: tracking.Ctx = Depends(curr
 @router.get("/pipeline")
 def pipeline(ctx: tracking.Ctx = Depends(current_member)):
     return _run(tracking.pipeline, ctx)
+
+
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.post("/exports/leads")
+def export_leads(body: lead_export.ExportIn, ctx: tracking.Ctx = Depends(current_member)):
+    data, name = _run(lead_export.export_workbook, ctx, body)
+    return Response(data, media_type=_XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"'})
