@@ -132,6 +132,7 @@ class OutcomeIn(BaseModel):
     lost_reason: Literal["price", "competitor", "no_need", "no_budget", "no_response", "timing", "other"] | None = None
     competitor_name: str | None = Field(None, max_length=200)
     notes: str | None = Field(None, max_length=2000)
+    imported: bool = False   # an existing customer added by hand: recorded as won, but not counted as a win this week
 
     _clean = field_validator("currency", "competitor_name", "notes", mode="before")(_blank_to_none)
 
@@ -444,6 +445,8 @@ def set_outcome(ctx: Ctx, lead_id: str, o: OutcomeIn) -> dict:
             detail["lost_reason"] = lost_reason
         if o.deal_value is not None:
             detail["deal_value"] = float(o.deal_value)
+        if o.imported:
+            detail["imported"] = True
         _add_event(conn, ctx, lead_id, o.result, detail)
         lead = _fetch_lead(conn, ctx, lead_id)
     return {"lead": _lead_out(lead), "outcome": _plain(dict(outcome))}
@@ -475,6 +478,7 @@ def pipeline(ctx: Ctx) -> dict:
         week = conn.execute(
             """select type, count(*) as n from lead_events
                where workspace_id = %s::uuid and occurred_at >= now() - interval '7 days'
+                 and coalesce(detail->>'imported', '') <> 'true'
                  and type in ('call_attempt', 'call_answered', 'email_sent', 'whatsapp_sent', 'visit', 'meeting',
                               'proposal_sent', 'won')
                group by type""",
