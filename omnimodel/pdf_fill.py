@@ -14,8 +14,11 @@ import gc
 import io
 import re
 
-import pypdfium2 as pdfium
-import pypdfium2.raw as raw
+try:                        # a missing library must not stop the whole API from starting; only this feature is off
+    import pypdfium2 as pdfium
+    import pypdfium2.raw as raw
+except ImportError:         # pragma: no cover
+    pdfium = raw = None
 
 MIN_CONDENSE = 0.8        # a crowded line may be squeezed sideways to 80% before it is allowed to run on
 MIN_SHRINK = 0.6          # a longer replacement may shrink to 60% of the original size before it is allowed to run on
@@ -213,6 +216,8 @@ def _replace_one(doc, page, obj, new: str, items, page_width: float) -> int:
 def fill(pdf_bytes: bytes, pairs: list[tuple[str, str]]) -> tuple[bytes, dict]:
     """pairs: [(text as it appears in the sample, new text)]. Returns (new pdf, report).
     report = {"found": {phrase: times}, "missing": [phrase], "shrunk": n, "unsupported": bool}"""
+    if pdfium is None:
+        raise RuntimeError("Proposal PDFs are not available on this server yet (the pypdfium2 package is missing).")
     rx, values = _pattern(pairs)
     counts: dict[str, int] = {}
     shrunk = 0
