@@ -110,6 +110,11 @@ class OutreachRequest(BaseModel):
     business: dict[str, str] | None = None  # optional overrides: our_name, our_title, our_email, our_phone
 
 
+class PdfTemplateRequest(BaseModel):
+    filename: str = "proposal.pdf"
+    data: str = Field(min_length=1, max_length=8_000_000)  # the PDF, base64 encoded
+
+
 class ExportRequest(BaseModel):
     text: str = Field(min_length=1, max_length=50_000)
     format: Literal["pdf", "docx", "txt"] = "pdf"
@@ -178,6 +183,24 @@ def suggest_fit(req: SuggestFitRequest):
 def outreach(req: OutreachRequest):
     text = _run(service.make_outreach, req.profile, req.kind, req.offering, req.lead.model_dump(), req.business)
     return {"kind": req.kind, "text": text}
+
+
+@app.post("/templates/from-pdf", dependencies=[Depends(require_key)])
+def template_from_pdf(req: PdfTemplateRequest):
+    """Text of an uploaded proposal PDF, for the person to turn into their own template."""
+    import base64
+    import binascii
+
+    from omnimodel import pdf_template
+
+    try:
+        raw = base64.b64decode(req.data, validate=False)
+    except (binascii.Error, ValueError):
+        raise HTTPException(400, "The file could not be read. Try again.")
+    try:
+        return pdf_template.extract_text(raw)
+    except pdf_template.PdfProblem as exc:
+        raise HTTPException(422, str(exc))
 
 
 @app.post("/export", dependencies=[Depends(require_key)])

@@ -245,4 +245,15 @@ create view v_conversion_by_sector as
   left join outcomes o on o.lead_id = l.id
   group by l.workspace_id, l.sector;
  
+-- ------------------------------------------------------------------ proposal template
+create table proposal_templates (
+  workspace_id  uuid primary key references workspaces(id) on delete cascade,   -- one proposal template per business
+  filename      text not null,
+  pdf           bytea not null,                 -- the uploaded PDF exactly as it was
+  size_bytes    int not null,
+  replacements  jsonb not null,                 -- [{"find": "Acme Ltd", "as": "company"}]: what to swap in the sample
+  uploaded_by   uuid references users(id),
+  uploaded_at   timestamptz not null default now()
+);
+ 
 commit;

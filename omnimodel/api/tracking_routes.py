@@ -9,6 +9,8 @@ a guest (shared API key, no token) gets 401, because a guest has no workspace to
   POST   /leads/{id}/events     log a call, message, visit, meeting, proposal or note
   PUT    /leads/{id}/outcome    close a lead as won or lost, with details
   GET    /pipeline              counts per status, follow-ups due, this week's activity
+  GET/PUT/DELETE /proposal-template   the business's own proposal PDF, kept as a template
+  POST   /proposal-template/render        one filled-in proposal (PDF); /render-many gives a zip of them
   POST   /exports/leads         an Excel file: all leads, one lead or one week, with history and the business profile
 
 The business to work in is the user's first one. Send `X-Workspace-Id` to pick another one they belong to."""
@@ -18,7 +20,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 
-from omnimodel import accounts, lead_export, tracking
+from omnimodel import accounts, lead_export, proposal_pdf, tracking
 from omnimodel.tracking import EventIn, OutcomeIn, PatchLead, SaveLead
 
 router = APIRouter(tags=["tracking"])
@@ -120,3 +122,34 @@ _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 def export_leads(body: lead_export.ExportIn, ctx: tracking.Ctx = Depends(current_member)):
     data, name = _run(lead_export.export_workbook, ctx, body)
     return Response(data, media_type=_XLSX, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.get("/proposal-template")
+def get_proposal_template(ctx: tracking.Ctx = Depends(current_member)):
+    return _run(proposal_pdf.get_template, ctx)
+
+
+@router.put("/proposal-template")
+def put_proposal_template(body: proposal_pdf.TemplateIn, ctx: tracking.Ctx = Depends(current_member)):
+    return _run(proposal_pdf.save_template, ctx, body)
+
+
+@router.delete("/proposal-template")
+def delete_proposal_template(ctx: tracking.Ctx = Depends(current_member)):
+    return _run(proposal_pdf.delete_template, ctx)
+
+
+@router.post("/proposal-template/render")
+def render_proposal(body: proposal_pdf.RenderIn, ctx: tracking.Ctx = Depends(current_member)):
+    pdf = _run(proposal_pdf.render, ctx, body)
+    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": 'attachment; filename="proposal.pdf"'})
+
+
+class RenderMany(proposal_pdf.BaseModel):
+    items: list[proposal_pdf.RenderIn]
+
+
+@router.post("/proposal-template/render-many")
+def render_proposals(body: RenderMany, ctx: tracking.Ctx = Depends(current_member)):
+    data = _run(proposal_pdf.render_many, ctx, body.items)
+    return Response(data, media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="proposals.zip"'})

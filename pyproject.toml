@@ -31,6 +31,8 @@ api = [
     "psycopg[binary,pool]",
     "PyJWT[crypto]",
     "openpyxl",
+    "pypdf",
+    "pypdfium2",
 ]
 dev = [
     "pytest>=8.0.0",
