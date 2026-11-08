@@ -50,7 +50,7 @@ def _font_name(obj) -> tuple[str, bool, bool, bool]:
             buf = ctypes.create_string_buffer(n)
             raw.FPDFFont_GetBaseFontName(font, buf, n)
             name = buf.value.decode("latin-1", "ignore").lower()
-    bold = "bold" in name or "black" in name or "heavy" in name or bool(flags & _FLAG_FORCEBOLD) or (font and raw.FPDFFont_GetWeight(font) >= 600)
+    bold = "bold" in name or "black" in name or "heavy" in name or bool(flags & _FLAG_FORCEBOLD) or (font and 100 <= raw.FPDFFont_GetWeight(font) <= 900 and raw.FPDFFont_GetWeight(font) >= 700)
     italic = "italic" in name or "oblique" in name or bool(flags & _FLAG_ITALIC)
     if "courier" in name or "mono" in name or "consolas" in name or flags & _FLAG_FIXED:
         fam = "Courier"
@@ -69,6 +69,16 @@ def _font_size(obj) -> float:
     v = ctypes.c_float()
     raw.FPDFTextObj_GetFontSize(obj, v)
     return v.value
+
+
+def _font_key(obj) -> str:
+    font = raw.FPDFTextObj_GetFont(obj)
+    n = raw.FPDFFont_GetBaseFontName(font, None, 0) if font else 0
+    if not n:
+        return ""
+    buf = ctypes.create_string_buffer(n)
+    raw.FPDFFont_GetBaseFontName(font, buf, n)
+    return buf.value.decode("latin-1", "ignore")
 
 
 def _bounds(obj) -> tuple[float, float, float, float]:
@@ -119,18 +129,20 @@ def _unsupported(text: str) -> bool:
     return text.encode("cp1252", "replace").decode("cp1252") != text
 
 
-def _replace_one(doc, page, obj, new: str, items, page_width: float) -> int:
+def _replace_one(doc, page, obj, new: str, items, page_width: float, seen: dict) -> tuple[int, bool]:
     """Swap one piece of text for another on the same line, in the same place and style.
     Text that flows on after it moves to follow. If the line would run past its margin, the whole line is squeezed a
     little (down to 80% width), and a line that is just this one piece may shrink its size instead. Pieces beyond a gap
-    (another table column) stay where they are. Returns 1 if anything had to be made smaller to fit."""
+    (another table column) stay where they are. Returns (1 if anything had to be made smaller to fit, True if a character could not be drawn)."""
     l, b, r, t = _bounds(obj.raw)
     m = _matrix(obj.raw)
-    size = _font_size(obj.raw)
+    size = _font_size(obj.raw) * abs(m.d or 1.0)        # the size it is actually drawn at on the page
     std, _, _, _ = _font_name(obj.raw)
     cr, cg, cb, ca = _rgba(obj.raw)
     old_width = r - l
     gap = size * 0.7
+    original = raw.FPDFTextObj_GetFont(obj.raw)
+    key = _font_key(obj.raw)
 
     same_line = []
     for other, otext in items:
@@ -162,9 +174,18 @@ def _replace_one(doc, page, obj, new: str, items, page_width: float) -> int:
             break
     wall = next((x[0] for x in right if x[2] not in after), None)
 
-    safe = new.encode("cp1252", "replace").decode("cp1252")
+    # Use the PDF's own font when every letter of the new text already appears in it (a subset font has no others):
+    # then the new words look exactly like the old ones. Otherwise a standard font that matches as well as possible.
+    own_font = bool(original) and bool(key) and set(new) <= seen.get(key, set())
+    flagged = False
+    if own_font:
+        safe = new
+        new_obj = raw.FPDFPageObj_CreateTextObj(doc.raw, original, size)
+    else:
+        safe = new.encode("cp1252", "replace").decode("cp1252")
+        flagged = safe != new
+        new_obj = raw.FPDFPageObj_NewTextObj(doc.raw, std.encode(), size)
     keep, ptr = _wide(safe)
-    new_obj = raw.FPDFPageObj_NewTextObj(doc.raw, std.encode(), size)
     raw.FPDFText_SetText(new_obj, ptr)
     raw.FPDFPageObj_SetFillColor(new_obj, cr, cg, cb, ca)
     nl, nb, nr, nt = _bounds(new_obj)
@@ -210,7 +231,7 @@ def _replace_one(doc, page, obj, new: str, items, page_width: float) -> int:
             raw.FPDFPageObj_Transform(new_obj, sx, 0, 0, 1, start * (1 - sx), 0)
             shrank = 1
     del keep
-    return shrank
+    return shrank, flagged
 
 
 def fill(pdf_bytes: bytes, pairs: list[tuple[str, str]]) -> tuple[bytes, dict]:
@@ -225,6 +246,17 @@ def fill(pdf_bytes: bytes, pairs: list[tuple[str, str]]) -> tuple[bytes, dict]:
     doc = pdfium.PdfDocument(pdf_bytes)
     try:
         if rx is not None:
+            seen: dict[str, set] = {}               # which characters each font in the PDF can draw
+            for index in range(len(doc)):
+                page = doc[index]
+                tp0 = page.get_textpage()
+                for ob in page.get_objects(filter=[raw.FPDF_PAGEOBJ_TEXT]):
+                    k = _font_key(ob.raw)
+                    if k:
+                        seen.setdefault(k, set()).update(_object_text(tp0, ob.raw))
+                tp0.close()
+                ob = None
+                page.close()
             for index in range(len(doc)):
                 page = doc[index]
                 tp = page.get_textpage()
@@ -238,9 +270,9 @@ def fill(pdf_bytes: bytes, pairs: list[tuple[str, str]]) -> tuple[bytes, dict]:
                         continue
                     edits.append((obj, text, _swap(text, rx, values, counts)))
                 for obj, old, new in edits:
-                    shrunk += _replace_one(doc, page, obj, new, items, width)
-                    if _unsupported(new):
-                        unsupported = True
+                    made_smaller, flagged = _replace_one(doc, page, obj, new, items, width, seen)
+                    shrunk += made_smaller
+                    unsupported = unsupported or flagged
                 page.gen_content()
                 items.clear()
                 edits.clear()
@@ -249,7 +281,7 @@ def fill(pdf_bytes: bytes, pairs: list[tuple[str, str]]) -> tuple[bytes, dict]:
         out = io.BytesIO()
         doc.save(out)
     finally:
-        obj = other = tp = page = None   # let go of every page object before the document closes
+        obj = other = tp = page = ob = None   # let go of every page object before the document closes
         gc.collect()
         doc.close()
     found = {k: v for k, v in counts.items()}

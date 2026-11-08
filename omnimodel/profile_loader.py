@@ -7,7 +7,7 @@ import yaml
 PROFILE_DIR = Path(__file__).resolve().parent.parent / "profiles"
 REQUIRED = ["name", "country", "business", "offerings", "sectors", "geography", "signal_schema", "outreach"]
 MAX_PROFILE_CHARS = 300_000   # whole profile, as JSON
-MAX_TEMPLATE_CHARS = 20_000   # each outreach template
+MAX_TEMPLATE_CHARS = 40_000   # each outreach template
 
 
 def profile_path(name: str) -> Path:

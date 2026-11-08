@@ -25,6 +25,45 @@ def _drop_repeats(pages: list[list[str]]) -> list[list[str]]:
     return [[ln for ln in page if ln not in repeated and not number.match(ln)] for page in pages]
 
 
+_BULLET = re.compile(r"^(?:[•●▪◦‣·\-–—*]\s|\d{1,2}[.)]\s|[a-z][.)]\s)")
+
+
+def _is_heading(line: str) -> bool:
+    letters = [c for c in line if c.isalpha()]
+    return 2 < len(line) < 80 and len(letters) >= 3 and all(c.isupper() for c in letters) and not line.rstrip().endswith((".", ","))
+
+
+def reflow(lines: list[str]) -> str:
+    """A PDF stores every printed line on its own. Join the lines of one paragraph back together so the text can be
+    edited, keeping headings, bullets and short closing lines as their own lines."""
+    lengths = sorted(len(x) for x in lines if len(x) > 20)
+    full = (lengths[int(len(lengths) * 0.9)] if lengths else 0) * 0.82     # a line this long probably wrapped
+    out: list[str] = []
+    cur = ""
+    prev = ""
+    for line in lines:
+        if not cur:
+            cur = line
+        elif (_is_heading(prev) or _is_heading(line) or _BULLET.match(line) or len(prev) < full
+              or (line[:1].isupper() and prev.rstrip().endswith((".", ":", "?", "!")) and len(prev) < full * 1.1)):
+            out.append(cur)
+            cur = line
+        else:
+            cur = cur + ("" if cur.endswith("-") and line[:1].islower() else " ") + line
+        prev = line
+    if cur:
+        out.append(cur)
+    # headings and list items stay tight; ordinary paragraphs get a blank line between them
+    parts: list[str] = []
+    for i, para in enumerate(out):
+        parts.append(para)
+        if i + 1 < len(out):
+            nxt = out[i + 1]
+            tight = (_BULLET.match(para) and _BULLET.match(nxt)) or _is_heading(para)
+            parts.append("\n" if tight else "\n\n")
+    return "".join(parts)
+
+
 def extract_text(data: bytes) -> dict:
     """Returns {"text", "pages", "truncated"}. Raises PdfProblem with a plain-language reason."""
     if not data:
@@ -48,8 +87,7 @@ def extract_text(data: bytes) -> dict:
     except Exception as exc:  # a damaged file can fail in many ways inside the parser
         raise PdfProblem("We could not read that PDF. It may be damaged; try saving it again from the original.") from exc
 
-    text = "\n".join("\n".join(page) + "\n" for page in _drop_repeats(pages))
-    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    text = reflow([ln for page in _drop_repeats(pages) for ln in page]).strip()
     if len(text) < 40:
         raise PdfProblem("We found no text in that PDF. It may be a scan or a photo. Export it from Word or Google Docs instead.")
     return {"text": text, "pages": total, "truncated": total > MAX_PAGES}

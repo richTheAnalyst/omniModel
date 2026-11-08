@@ -79,7 +79,11 @@ def save_template(ctx: Ctx, body: TemplateIn) -> dict:
                  uploaded_by = excluded.uploaded_by, uploaded_at = now()""",
             (ctx.workspace_id, body.filename.strip() or "proposal.pdf", raw, len(raw), _jsonb(reps), ctx.user_id),
         )
-    return {"template": get_template(ctx)["template"],
+    try:                                            # the same words as editable text, for the Proposal tab in Create outreach
+        text = pdf_template.extract_text(raw)["text"]
+    except Exception:                               # an image-only PDF has none; the designed PDF still works
+        text = None
+    return {"template": get_template(ctx)["template"], "text": text,
             "found": {f: found.get(f.lower(), 0) for f in finds},
             "missing": [f for f in finds if f.lower() not in found]}
 

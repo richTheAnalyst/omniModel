@@ -62,3 +62,13 @@ def test_password_protected_pdf_is_refused():
     locked = make_pdf([BODY], encrypt=pdfencrypt.StandardEncryption("secret", canPrint=1))
     with pytest.raises(pdf_template.PdfProblem, match="password"):
         pdf_template.extract_text(locked)
+
+
+def test_wrapped_lines_are_joined_into_paragraphs_but_headings_and_bullets_stay_apart():
+    full = "This is a long line of text that fills the whole width of the page and so it wraps on to the next"
+    lines = ["ABOUT US", full, "line of the very same paragraph and then it ends here.", full, "second paragraph carries on a bit more.",
+             "• First point is a list item that fits on one line only", "• Second point is another list item", "Thank you."]
+    text = pdf_template.reflow(lines)
+    assert text.startswith("ABOUT US\n" + full + " line of the very same paragraph")
+    assert "\n\n" in text and "• First point is a list item that fits on one line only\n• Second point" in text
+    assert text.endswith("Thank you.")
