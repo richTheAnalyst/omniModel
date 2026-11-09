@@ -182,7 +182,9 @@ def analyze_url(profile, url: str, sector: str, region: str, city: str,
             ai_fit, ai_owner = ai["fit"] or None, ai["ownership"]
         except Exception as exc:  # never fail the whole analysis because of the AI step
             notes.append(f"AI fit was skipped: {exc}")
-    out = {"url": url, "signals": signals, **_scored(P, lead, signals, 0, ai_fit),
+    from omnimodel import emails as _emails
+    seen_emails = _emails.find_emails(text, url)
+    out = {"url": url, "signals": signals, "email": seen_emails[0] if seen_emails else None, **_scored(P, lead, signals, 0, ai_fit),
            "ai_fit_used": bool(ai_fit), "fit_reasons": {k: x["reason"] for k, x in (ai_fit or {}).items()},
            **refine(classify(name, url, types), ai_owner)}
     if "_raw" in signals:
@@ -190,6 +192,21 @@ def analyze_url(profile, url: str, sector: str, region: str, city: str,
     if notes:
         out["warning"] = " ".join(notes)
     return out
+
+
+def find_email(url: str) -> dict:
+    """Looks for a contact email on a company's website: its home page first, then its contact page. Free: no AI involved."""
+    from urllib.parse import urljoin
+    from omnimodel import emails
+    _check_url(url)
+    found = emails.find_emails(_scrape([url]).get(url, ""), url)
+    if not found:
+        for path in ("/contact", "/contact-us"):
+            page = urljoin(url, path)
+            found = emails.find_emails(_scrape([page]).get(page, ""), url)
+            if found:
+                break
+    return {"email": found[0] if found else None, "emails": found}
 
 
 def suggest_fit(profile, backend: str | None = None, sectors: list[str] | None = None) -> dict:

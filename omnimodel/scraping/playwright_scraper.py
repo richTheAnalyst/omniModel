@@ -61,6 +61,14 @@ async def fetch_page(
             if wait_for:
                 await page.wait_for_selector(wait_for, timeout=_timeout)
             text = await page.inner_text("body")
+            try:                                   # addresses that only exist as "mail us" links are not in the visible text
+                links = await page.eval_on_selector_all(
+                    'a[href^="mailto:" i]', "els => els.map(e => e.getAttribute('href'))")
+                found = [h.split(":", 1)[1].split("?")[0] for h in links if h and ":" in h]
+                if found:
+                    text += "\nEmail: " + " ".join(found)
+            except Exception:
+                pass
             return text
         finally:
             await browser.close()

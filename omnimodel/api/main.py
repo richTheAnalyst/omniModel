@@ -174,6 +174,15 @@ def analyze(req: AnalyzeRequest):
                 req.name, req.review_count, req.backend, req.use_ai_fit, req.types)
 
 
+class FindEmailRequest(BaseModel):
+    url: str
+
+
+@app.post("/find-email", dependencies=[Depends(require_key)])
+def find_email(req: FindEmailRequest):
+    return _run(service.find_email, req.url)
+
+
 @app.post("/suggest-fit", dependencies=[Depends(require_key)])
 def suggest_fit(req: SuggestFitRequest):
     return _run(service.suggest_fit, req.profile, req.backend, req.sectors)
