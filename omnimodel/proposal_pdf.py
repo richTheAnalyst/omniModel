@@ -35,6 +35,12 @@ class RenderIn(BaseModel):
     city: str = Field(default="", max_length=200)
     offering_label: str = Field(default="", max_length=200)
     business: dict[str, str] = Field(default_factory=dict)   # our_name, our_email, our_phone, our_title
+    # The person's own edits to the design: {page number: {line number: new text}} (see pdf_fill.list_lines).
+    overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+
+class PageIn(RenderIn):
+    page: int = Field(default=0, ge=0, le=200)
 
 
 def _decode(data: str) -> bytes:
@@ -55,6 +61,28 @@ def _pairs(replacements: list[dict], req: RenderIn) -> list[tuple[str, str]]:
         values[key] = str(req.business.get(key, "") or "")
     # An empty value removes the old text rather than leaving a previous client's details in the new proposal.
     return [(r["find"], values.get(r["as"], "")) for r in replacements]
+
+
+def _overrides(req: RenderIn) -> dict[int, dict[int, str]]:
+    out: dict[int, dict[int, str]] = {}
+    total = 0
+    for page, lines in req.overrides.items():
+        try:
+            p = int(page)
+        except ValueError:
+            raise BadInput("An edit refers to a page that does not exist.")
+        for number, text in lines.items():
+            try:
+                n = int(number)
+            except ValueError:
+                raise BadInput("An edit refers to a line that does not exist.")
+            if len(text) > 2000:
+                raise BadInput("One edited line is too long.")
+            out.setdefault(p, {})[n] = text
+            total += 1
+    if total > 800:
+        raise BadInput("Too many edited lines.")
+    return out
 
 
 def save_template(ctx: Ctx, body: TemplateIn) -> dict:
@@ -119,8 +147,24 @@ def _stored(ctx: Ctx) -> tuple[bytes, list[dict]]:
 
 def render(ctx: Ctx, req: RenderIn) -> bytes:
     pdf, reps = _stored(ctx)
-    out, _ = pdf_fill.fill(pdf, _pairs(reps, req))
+    out, _ = pdf_fill.fill(pdf, _pairs(reps, req), _overrides(req))
     return out
+
+
+def lines(ctx: Ctx, req: RenderIn) -> dict:
+    """The text on every page, as it will read for this company, for the editor."""
+    pdf, reps = _stored(ctx)
+    return {"pages": pdf_fill.list_lines(pdf, _pairs(reps, req))}
+
+
+def page_image(ctx: Ctx, req: PageIn) -> bytes:
+    """One page as it will look for this company, with the person's edits so far."""
+    pdf, reps = _stored(ctx)
+    out, _ = pdf_fill.fill(pdf, _pairs(reps, req), _overrides(req))
+    try:
+        return pdf_fill.page_jpeg(out, req.page)
+    except IndexError:
+        raise NotFound("That page does not exist.")
 
 
 def _safe_name(text: str, used: set[str]) -> str:

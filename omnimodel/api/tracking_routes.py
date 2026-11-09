@@ -11,6 +11,9 @@ a guest (shared API key, no token) gets 401, because a guest has no workspace to
   GET    /pipeline              counts per status, follow-ups due, this week's activity
   GET/PUT/DELETE /proposal-template   the business's own proposal PDF, kept as a template
   POST   /proposal-template/render        one filled-in proposal (PDF); /render-many gives a zip of them
+  POST   /proposal-template/lines, /page  the text and a picture of each page, for editing one proposal before it is sent
+  GET    /email/status                    is sending switched on, and how many emails are left today
+  POST   /email/send                      send one email (optionally with a proposal PDF attached) and log it on the lead
   POST   /exports/leads         an Excel file: all leads, one lead or one week, with history and the business profile
 
 The business to work in is the user's first one. Send `X-Workspace-Id` to pick another one they belong to."""
@@ -20,7 +23,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 
-from omnimodel import accounts, lead_export, proposal_pdf, tracking
+from omnimodel import accounts, emailer, lead_export, proposal_pdf, tracking
 from omnimodel.tracking import EventIn, OutcomeIn, PatchLead, SaveLead
 
 router = APIRouter(tags=["tracking"])
@@ -42,6 +45,8 @@ def _run(fn, *args, **kwargs):
         raise HTTPException(409, str(exc))
     except tracking.Forbidden as exc:
         raise HTTPException(403, str(exc))
+    except emailer.NotConfigured as exc:              # no mail settings, or the mail service is down
+        raise HTTPException(503, str(exc))
     except RuntimeError as exc:                       # DATABASE_URL is not set
         raise HTTPException(503, str(exc))
     except Exception as exc:
@@ -145,6 +150,16 @@ def render_proposal(body: proposal_pdf.RenderIn, ctx: tracking.Ctx = Depends(cur
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": 'attachment; filename="proposal.pdf"'})
 
 
+@router.post("/proposal-template/lines")
+def proposal_lines(body: proposal_pdf.RenderIn, ctx: tracking.Ctx = Depends(current_member)):
+    return _run(proposal_pdf.lines, ctx, body)
+
+
+@router.post("/proposal-template/page")
+def proposal_page(body: proposal_pdf.PageIn, ctx: tracking.Ctx = Depends(current_member)):
+    return Response(_run(proposal_pdf.page_image, ctx, body), media_type="image/jpeg")
+
+
 class RenderMany(proposal_pdf.BaseModel):
     items: list[proposal_pdf.RenderIn]
 
@@ -153,3 +168,13 @@ class RenderMany(proposal_pdf.BaseModel):
 def render_proposals(body: RenderMany, ctx: tracking.Ctx = Depends(current_member)):
     data = _run(proposal_pdf.render_many, ctx, body.items)
     return Response(data, media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="proposals.zip"'})
+
+
+@router.get("/email/status")
+def email_status(ctx: tracking.Ctx = Depends(current_member)):
+    return _run(emailer.status, ctx)
+
+
+@router.post("/email/send")
+def email_send(body: emailer.SendIn, ctx: tracking.Ctx = Depends(current_member)):
+    return _run(emailer.send, ctx, body)

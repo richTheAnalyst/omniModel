@@ -234,8 +234,9 @@ def _replace_one(doc, page, obj, new: str, items, page_width: float, seen: dict)
     return shrank, flagged
 
 
-def fill(pdf_bytes: bytes, pairs: list[tuple[str, str]]) -> tuple[bytes, dict]:
+def fill(pdf_bytes: bytes, pairs: list[tuple[str, str]], overrides: dict[int, dict[int, str]] | None = None) -> tuple[bytes, dict]:
     """pairs: [(text as it appears in the sample, new text)]. Returns (new pdf, report).
+    overrides: {page: {line number: the exact text that line should have}}, the person's own edits (see list_lines).
     report = {"found": {phrase: times}, "missing": [phrase], "shrunk": n, "unsupported": bool}"""
     if pdfium is None:
         raise RuntimeError("Proposal PDFs are not available on this server yet (the pypdfium2 package is missing).")
@@ -245,7 +246,8 @@ def fill(pdf_bytes: bytes, pairs: list[tuple[str, str]]) -> tuple[bytes, dict]:
     unsupported = False
     doc = pdfium.PdfDocument(pdf_bytes)
     try:
-        if rx is not None:
+        overrides = overrides or {}
+        if rx is not None or overrides:
             seen: dict[str, set] = {}               # which characters each font in the PDF can draw
             for index in range(len(doc)):
                 page = doc[index]
@@ -265,10 +267,12 @@ def fill(pdf_bytes: bytes, pairs: list[tuple[str, str]]) -> tuple[bytes, dict]:
                 for obj in page.get_objects(filter=[raw.FPDF_PAGEOBJ_TEXT]):
                     items.append((obj, _object_text(tp, obj.raw)))
                 edits = []
-                for obj, text in items:
-                    if not text or not rx.search(text):
-                        continue
-                    edits.append((obj, text, _swap(text, rx, values, counts)))
+                mine = overrides.get(index, {})
+                for number, (obj, text) in enumerate(items):
+                    if number in mine and mine[number] != text:
+                        edits.append((obj, text, mine[number]))      # the person's own wording wins over a swap
+                    elif text and rx is not None and rx.search(text):
+                        edits.append((obj, text, _swap(text, rx, values, counts)))
                 for obj, old, new in edits:
                     made_smaller, flagged = _replace_one(doc, page, obj, new, items, width, seen)
                     shrunk += made_smaller
@@ -293,3 +297,55 @@ def count_phrases(pdf_bytes: bytes, phrases: list[str]) -> dict[str, int]:
     """How many times each phrase appears in the PDF's text (used when the PDF is first uploaded)."""
     _, report = fill(pdf_bytes, [(p, p) for p in phrases])
     return report["found"]
+
+
+def list_lines(pdf_bytes: bytes, pairs: list[tuple[str, str]]) -> list[dict]:
+    """Every piece of text on every page, as it would read after the swaps, so the person can change any of it.
+    Returns [{"width", "height", "lines": [{"i": line number, "text", "box": [left, bottom, right, top]}]}].
+    A line here is one piece of text in the PDF (usually one printed line); the numbers match fill()'s overrides."""
+    if pdfium is None:
+        raise RuntimeError("Proposal PDFs are not available on this server yet (the pypdfium2 package is missing).")
+    rx, values = _pattern(pairs)
+    doc = pdfium.PdfDocument(pdf_bytes)
+    pages: list[dict] = []
+    try:
+        for index in range(len(doc)):
+            page = doc[index]
+            tp = page.get_textpage()
+            lines = []
+            for number, obj in enumerate(page.get_objects(filter=[raw.FPDF_PAGEOBJ_TEXT])):
+                text = _object_text(tp, obj.raw)
+                if not text.strip():
+                    continue
+                if rx is not None and rx.search(text):
+                    text = _swap(text, rx, values, {})
+                l, b, r, t = _bounds(obj.raw)
+                lines.append({"i": number, "text": text.rstrip(), "box": [round(l, 1), round(b, 1), round(r, 1), round(t, 1)]})
+            pages.append({"width": round(page.get_width(), 1), "height": round(page.get_height(), 1), "lines": lines})
+            tp.close()
+            obj = None
+            page.close()
+    finally:
+        obj = tp = page = None
+        gc.collect()
+        doc.close()
+    return pages
+
+
+def page_jpeg(pdf_bytes: bytes, number: int, scale: float = 1.3) -> bytes:
+    """One page as a picture, for the editor."""
+    if pdfium is None:
+        raise RuntimeError("Proposal PDFs are not available on this server yet (the pypdfium2 package is missing).")
+    doc = pdfium.PdfDocument(pdf_bytes)
+    try:
+        if not 0 <= number < len(doc):
+            raise IndexError("No such page.")
+        page = doc[number]
+        out = io.BytesIO()
+        page.render(scale=scale).to_pil().convert("RGB").save(out, "JPEG", quality=74)
+        page.close()
+        return out.getvalue()
+    finally:
+        page = None
+        gc.collect()
+        doc.close()
