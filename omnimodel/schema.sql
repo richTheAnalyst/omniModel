@@ -72,6 +72,7 @@ create table leads (                            -- one row per company per busin
   sector                text,
   phone                 text,
   website               text,
+  email                 text,                  -- a contact address for the company, if known; filled in when you email them
   lat                   double precision,       -- Google-derived fields: check Google's terms on how long they may be stored
   lng                   double precision,
   google_types          text[],

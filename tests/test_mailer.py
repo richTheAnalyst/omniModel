@@ -152,3 +152,19 @@ def test_text_attachment_is_made_from_the_proposal_text(member, outbox):
     emailer.send(ctx, req(attachment=Attachment(kind="text", text="Our proposal\n\nBody text here.", filename="Proposal Client")))
     part = list(outbox[0].iter_attachments())[0]
     assert part.get_filename() == "Proposal Client.pdf" and part.get_content().startswith(b"%PDF")
+
+
+def test_the_address_is_remembered_on_the_lead_and_not_overwritten(member, outbox):
+    ctx = member("em9")
+    one = lead(ctx)
+    assert tracking.get_lead(ctx, one["id"])["lead"]["email"] is None if "lead" in tracking.get_lead(ctx, one["id"]) else True
+    emailer.send(ctx, req(lead_id=one["id"], to="first@client.example"))
+    emailer.send(ctx, req(lead_id=one["id"], to="second@client.example"))
+    got = tracking.get_lead(ctx, one["id"])
+    assert (got.get("lead") or got)["email"] == "first@client.example"
+
+
+def test_a_lead_can_be_saved_with_an_email(member):
+    ctx = member("em10")
+    saved = tracking.save_lead(ctx, SaveLead(place_id="p-mail", name="Mail Co", email="  hello@mail.example "))
+    assert saved["lead"]["email"] == "hello@mail.example"

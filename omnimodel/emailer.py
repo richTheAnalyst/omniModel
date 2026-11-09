@@ -167,6 +167,12 @@ def send(ctx: Ctx, req: SendIn) -> dict:
 
     logged = False
     if req.lead_id:
+        try:                                       # remember the address for next time, unless one is already stored
+            with db.connection() as conn:
+                conn.execute("update leads set email = %s where id = %s::uuid and workspace_id = %s::uuid and email is null",
+                             (to, req.lead_id, ctx.workspace_id))
+        except Exception:
+            pass
         try:                                       # the email is already out, so a failure here must not look like one
             from . import tracking
             kind = "proposal_sent" if req.kind == "proposal" else "email_sent"

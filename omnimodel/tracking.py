@@ -72,6 +72,7 @@ class SaveLead(BaseModel):
     sector: str | None = Field(None, max_length=100)
     phone: str | None = Field(None, max_length=60)
     website: str | None = Field(None, max_length=500)
+    email: str | None = Field(None, max_length=254)
     lat: float | None = Field(None, ge=-90, le=90)
     lng: float | None = Field(None, ge=-180, le=180)
     types: list[str] = Field(default_factory=list, max_length=20)
@@ -82,7 +83,7 @@ class SaveLead(BaseModel):
     snapshot: dict[str, Any] | None = None   # scores, best offering and website analysis as the user saw them
 
     _clean = field_validator(
-        "place_id", "name", "address", "city", "region", "country", "sector", "phone", "website", mode="before"
+        "place_id", "name", "address", "city", "region", "country", "sector", "phone", "website", "email", mode="before"
     )(_blank_to_none)
 
     @field_validator("types", mode="before")
@@ -190,7 +191,7 @@ def auto_status(current: str, event_type: str) -> str | None:
     return None
 
 
-LEAD_COLS = """l.id, l.place_id, l.name, l.address, l.city, l.region, l.country, l.sector, l.phone, l.website,
+LEAD_COLS = """l.id, l.place_id, l.name, l.address, l.city, l.region, l.country, l.sector, l.phone, l.website, l.email,
   l.lat, l.lng, l.google_types, l.rating, l.review_count, l.ownership, l.ownership_confidence, l.snapshot,
   l.status, l.status_changed_at, l.do_not_contact, l.contact_attempts, l.last_contacted_at, l.next_follow_up_at,
   l.first_seen_at, l.created_at, l.updated_at,
@@ -267,9 +268,9 @@ def save_lead(ctx: Ctx, data: SaveLead) -> dict:
     A weak ownership guess never replaces a checked one."""
     with db.connection() as conn:
         row = conn.execute(
-            f"""insert into leads (workspace_id, place_id, name, address, city, region, country, sector, phone, website,
+            f"""insert into leads (workspace_id, place_id, name, address, city, region, country, sector, phone, website, email,
                                    lat, lng, google_types, rating, review_count, ownership, ownership_confidence, snapshot)
-                values (%s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                values (%s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 on conflict (workspace_id, place_id) do update set
                   name = coalesce(excluded.name, leads.name),
                   address = coalesce(excluded.address, leads.address),
@@ -279,6 +280,7 @@ def save_lead(ctx: Ctx, data: SaveLead) -> dict:
                   sector = coalesce(excluded.sector, leads.sector),
                   phone = coalesce(excluded.phone, leads.phone),
                   website = coalesce(excluded.website, leads.website),
+                  email = coalesce(excluded.email, leads.email),
                   lat = coalesce(excluded.lat, leads.lat),
                   lng = coalesce(excluded.lng, leads.lng),
                   google_types = case when cardinality(excluded.google_types) > 0 then excluded.google_types else leads.google_types end,
@@ -291,7 +293,7 @@ def save_lead(ctx: Ctx, data: SaveLead) -> dict:
                   updated_at = now()
                 returning id, (xmax = 0) as created""",
             (ctx.workspace_id, data.place_id, data.name, data.address, data.city, data.region, data.country, data.sector,
-             data.phone, data.website, data.lat, data.lng, data.types, data.rating, data.review_count, data.ownership,
+             data.phone, data.website, data.email, data.lat, data.lng, data.types, data.rating, data.review_count, data.ownership,
              data.ownership_confidence, _jsonb(data.snapshot) if data.snapshot is not None else None),
         ).fetchone()
         lead = _fetch_lead(conn, ctx, str(row["id"]))
